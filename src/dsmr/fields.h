@@ -467,7 +467,7 @@ namespace dsmr
     /*
  * LUX, Lithuania and Sweden
  */
-    /* IEC 62056 define the unit of reactive power as "kvar". Some meters e.g. L+G E360 uses mixed case "kVar" */
+    /* IEC 62056 define the unit of reactive power as kvar. Some meters e.g. L+G E360 uses mixed case kVar */
     /* Instantaneous reactive power L1 (+Q) in W resolution */
     DEFINE_FIELD(reactive_power_delivered_l1, FixedValue, ObisId(1, 0, 23, 7, 0), FixedField, units::kvar, units::kvar);
     /* Instantaneous reactive power L2 (+Q) in W resolution */
@@ -478,7 +478,7 @@ namespace dsmr
     /*
  * LUX, Lithuania and Sweden
  */
-    /* IEC 62056 define the unit of reactive power as "kvar". Some meters e.g. L+G E360 uses mixed case "kVar" */
+    /* IEC 62056 define the unit of reactive power as kvar. Some meters e.g. L+G E360 uses mixed case kVar */
     /* Instantaneous reactive power L1 (-Q) in W resolution */
     DEFINE_FIELD(reactive_power_returned_l1, FixedValue, ObisId(1, 0, 24, 7, 0), FixedField, units::kvar, units::kvar);
     /* Instantaneous reactive power L2 (-Q) in W resolution */

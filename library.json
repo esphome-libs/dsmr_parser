@@ -1,12 +1,12 @@
 {
-  "name": "Dsmr",
-  "version": "0.9",
-  "description": "Parser and utilities for Dutch Smart Meters (Implementing DSMR)",
+  "name": "dsmr_parser",
+  "version": "1.0",
+  "description": "Fork of arduino-dsmr. Doesn't depend on the Arduino framework and has many bug fixes and code quality improvements. Supports encrypted DSMR packets.",
   "keywords": "dsmr",
   "repository": {
     "type": "git",
-    "url": "https://github.com/glmnet/arduino-dsmr.git"
+    "url": "https://github.com/esphome-libs/arduino-dsmr"
   },
   "license": "MIT",
-  "exclude": ["specs/"]
+  "export": { "include": [ "src/dsmr_parser/*.h" ] }
 }

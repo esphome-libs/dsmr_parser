@@ -1,0 +1,145 @@
+#pragma once
+
+#include <algorithm>
+#include <array>
+#include <cstdint>
+#include <cstring>
+#include <string>
+#include <utility>
+
+namespace dsmr_parser {
+
+class NonCopyable {
+protected:
+  NonCopyable() = default;
+  ~NonCopyable() = default;
+
+public:
+  NonCopyable(NonCopyable&&) = default;
+  NonCopyable& operator=(NonCopyable&&) = default;
+
+  NonCopyable(const NonCopyable&) = delete;
+  NonCopyable& operator=(const NonCopyable&) = delete;
+};
+
+class NonCopyableAndNonMovable : NonCopyable {
+protected:
+  NonCopyableAndNonMovable() = default;
+  ~NonCopyableAndNonMovable() = default;
+
+public:
+  NonCopyableAndNonMovable(NonCopyableAndNonMovable&&) = delete;
+  NonCopyableAndNonMovable& operator=(NonCopyableAndNonMovable&&) = delete;
+};
+
+// The ParseResult<T> class wraps the result of a parse function. The type
+// of the result is passed as a template parameter and can be void to
+// not return any result.
+//
+// A ParseResult can either:
+//  - Return an error. In this case, err is set to an error message, ctx
+//    is optionally set to where the error occurred. The result (if any)
+//    and the next pointer are meaningless.
+//  - Return succesfully. In this case, err and ctx are NULL, result
+//    contains the result (if any) and next points one past the last
+//    byte processed by the parser.
+//
+// The ParseResult class has some convenience functions:
+//  - succeed(result): sets the result to the given value and returns
+//    the ParseResult again.
+//  - fail(err): Set the err member to the error message passed,
+//    optionally sets the ctx and return the ParseResult again.
+//  - until(next): Set the next member and return the ParseResult again.
+//
+// Furthermore, ParseResults can be implicitely converted to other
+// types. In this case, the error message, context and and next pointer are
+// conserved, the return value is reset to the default value for the
+// target type.
+//
+// Note that ctx points into the string being parsed, so it does not
+// need to be freed, lives as long as the original string and is
+// probably way longer that needed.
+
+// Superclass for ParseResult so we can specialize for void without
+// having to duplicate all content
+template <typename P, typename T>
+struct _ParseResult {
+  T result;
+
+  template <class U>
+  P& succeed(U&& value) {
+    result = std::forward<U>(value);
+    return *static_cast<P*>(this);
+  }
+};
+
+// partial specialization for void result
+template <typename P>
+struct _ParseResult<P, void> {};
+
+// Actual ParseResult class
+template <typename T>
+struct ParseResult : public _ParseResult<ParseResult<T>, T> {
+  const char* next = nullptr;
+  const char* err = nullptr;
+  const char* ctx = nullptr;
+
+  ParseResult& fail(const char* error, const char* context = nullptr) {
+    this->err = error;
+    this->ctx = context;
+    return *this;
+  }
+  ParseResult& until(const char* nextToken) {
+    this->next = nextToken;
+    return *this;
+  }
+  ParseResult() = default;
+
+  template <typename T2>
+  ParseResult(const ParseResult<T2>& other) : next(other.next), err(other.err), ctx(other.ctx) {}
+
+  // Returns the error, including context in a fancy multi-line format.
+  // The start and end passed are the first and one-past-the-end
+  // characters in the total parsed string. These are needed to properly
+  // limit the context output.
+  std::string fullError(const char* start, const char* end) const {
+    std::string res;
+    if (this->ctx && start && end) {
+      // Find the entire line surrounding the context
+      const char* line_end = this->ctx;
+      while (line_end < end && line_end[0] != '\r' && line_end[0] != '\n')
+        ++line_end;
+      const char* line_start = this->ctx;
+      while (line_start > start && line_start[-1] != '\r' && line_start[-1] != '\n')
+        --line_start;
+
+      // We can now predict the context string length, so let String allocate
+      // memory in advance
+      res.reserve(static_cast<size_t>((line_end - line_start) + 2 + (this->ctx - line_start) + 1 + 2));
+
+      // Write the line
+      res.append(line_start, static_cast<size_t>(line_end - line_start));
+
+      res += "\r\n";
+
+      // Write a marker to point out ctx
+      while (line_start++ < this->ctx)
+        res += ' ';
+      res += '^';
+      res += "\r\n";
+    }
+    res += this->err;
+    return res;
+  }
+};
+
+// An OBIS id is 6 bytes, usually noted as a-b:c.d.e.f. Here we put them in an array for easy parsing.
+struct ObisId {
+  std::array<uint8_t, 6> v{};
+  constexpr ObisId(const uint8_t a, const uint8_t b = 255, const uint8_t c = 255, const uint8_t d = 255, const uint8_t e = 255, const uint8_t f = 255) noexcept
+      : v{a, b, c, d, e, f} {};
+  ObisId() = default;
+  bool operator==(const ObisId&) const = default;
+};
+
+}

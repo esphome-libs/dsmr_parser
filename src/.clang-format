@@ -1,0 +1,8 @@
+# https://clang.llvm.org/docs/ClangFormatStyleOptions.html
+BasedOnStyle: LLVM
+CompactNamespaces: true
+AlwaysBreakTemplateDeclarations: Yes
+FixNamespaceComments: false
+PointerAlignment: Left
+AlignEscapedNewlines: Left
+ColumnLimit: 160

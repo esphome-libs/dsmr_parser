@@ -79,7 +79,7 @@ struct _ParseResult<P, void> {};
 
 // Actual ParseResult class
 template <typename T>
-struct ParseResult : public _ParseResult<ParseResult<T>, T> {
+struct ParseResult final : public _ParseResult<ParseResult<T>, T> {
   const char* next = nullptr;
   const char* err = nullptr;
   const char* ctx = nullptr;
@@ -134,7 +134,7 @@ struct ParseResult : public _ParseResult<ParseResult<T>, T> {
 };
 
 // An OBIS id is 6 bytes, usually noted as a-b:c.d.e.f. Here we put them in an array for easy parsing.
-struct ObisId {
+struct ObisId final {
   std::array<uint8_t, 6> v{};
   constexpr ObisId(const uint8_t a, const uint8_t b = 255, const uint8_t c = 255, const uint8_t d = 255, const uint8_t e = 255, const uint8_t f = 255) noexcept
       : v{a, b, c, d, e, f} {};

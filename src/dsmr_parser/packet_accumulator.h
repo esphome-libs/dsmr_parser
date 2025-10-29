@@ -8,8 +8,8 @@
 namespace dsmr_parser {
 
 // Receives unencrypted DSMR packets.
-class PacketAccumulator {
-  class DsmrPacketBuffer {
+class PacketAccumulator final {
+  class DsmrPacketBuffer final {
     std::span<char> _buffer;
     std::size_t _packetSize = 0;
 
@@ -40,7 +40,7 @@ class PacketAccumulator {
     }
   };
 
-  class CrcAccumulator {
+  class CrcAccumulator final {
     uint16_t crc = 0;
     size_t amount_of_crc_nibbles = 0;
 
@@ -81,7 +81,7 @@ public:
     CrcMismatch,
   };
 
-  class Result {
+  class Result final {
     friend class PacketAccumulator;
 
     std::optional<std::string_view> _packet;

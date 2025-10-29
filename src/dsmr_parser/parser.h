@@ -40,7 +40,7 @@ inline uint16_t crc16_update(uint16_t crc, uint8_t data) {
 // Furthermore, this class offers some helper methods that can be used
 // to loop over all the fields inside it.
 template <typename... Ts>
-struct ParsedData : Ts... {
+struct ParsedData final : Ts... {
   ParseResult<void> parse_line(const ObisId& obisId, const char* str, const char* end) {
     ParseResult<void> res;
     const auto& try_one = [&](auto& field) -> bool {
@@ -70,7 +70,7 @@ struct ParsedData : Ts... {
   bool all_present() { return (Ts::present() && ...); }
 };
 
-struct StringParser {
+struct StringParser final {
   static ParseResult<std::string> parse_string(size_t min, size_t max, const char* str, const char* end) {
     ParseResult<std::string> res;
     if (str >= end || *str != '(')
@@ -98,7 +98,7 @@ struct StringParser {
 static constexpr char INVALID_NUMBER[] = "Invalid number";
 static constexpr char INVALID_UNIT[] = "Invalid unit";
 
-struct NumParser {
+struct NumParser final {
   static ParseResult<uint32_t> parse(size_t max_decimals, const char* unit, const char* str, const char* end) {
     ParseResult<uint32_t> res;
     if (str >= end || *str != '(')
@@ -165,7 +165,7 @@ struct NumParser {
   }
 };
 
-struct ObisIdParser {
+struct ObisIdParser final {
   static ParseResult<ObisId> parse(const char* str, const char* end) {
     // Parse a Obis ID of the form 1-2:3.4.5.6
     // Stops parsing on the first unrecognized character. Any unparsed
@@ -204,7 +204,7 @@ struct ObisIdParser {
   }
 };
 
-struct CrcParser {
+struct CrcParser final {
 private:
   static const size_t CRC_LEN = 4;
 
@@ -246,7 +246,7 @@ public:
   }
 };
 
-struct P1Parser {
+struct P1Parser final {
 
   // Parse a complete P1 telegram. The string passed should start
   // with '/' and run up to and including the ! and the following

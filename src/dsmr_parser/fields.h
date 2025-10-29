@@ -228,7 +228,7 @@ struct RawField : ParsedField<T> {
 };
 
 namespace fields {
-struct units {
+struct units final {
   static inline constexpr char none[] = "";
   static inline constexpr char kWh[] = "kWh";
   static inline constexpr char Wh[] = "Wh";

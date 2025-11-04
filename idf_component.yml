@@ -1,0 +1,11 @@
+description: "A parser for Dutch Smart Meter Requirements (DSMR) telegrams. Fork of arduino-dsmr. Doesn't depend on the Arduino framework and has many bug fixes and code quality improvements. Supports encrypted DSMR packets"
+url: "https://github.com/esphome-libs/dsmr_parser"
+repository: "https://github.com/esphome-libs/dsmr_parser.git"
+files:
+  exclude:
+    - "**/*"
+  include:
+    - src/dsmr_parser/*.h
+    - LICENSE
+    - README.md
+    - CMakeLists.txt

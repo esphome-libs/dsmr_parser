@@ -1,5 +1,10 @@
-cmake_minimum_required (VERSION 3.20)
-project(arduino-dsmr-test LANGUAGES CXX C)
+if(ESP_PLATFORM)
+   idf_component_register(INCLUDE_DIRS "src") # header-only
+   return()
+endif()
+
+cmake_minimum_required(VERSION 3.20)
+project(dsmr_parser)
 include(FetchContent)
 
 # doctest
@@ -34,21 +39,21 @@ FetchContent_Populate(
 include(${cmake_template_SOURCE_DIR}/cmake/CompilerWarnings.cmake)
 include(${cmake_template_SOURCE_DIR}/cmake/Sanitizers.cmake)
 
-# arduino_dsmr_test
-file(GLOB_RECURSE arduino_dsmr_test_src_files CONFIGURE_DEPENDS "src/*.h" "src/*.cpp")
-add_executable(arduino_dsmr_test ${arduino_dsmr_test_src_files})
-target_include_directories(arduino_dsmr_test PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_BINARY_DIR}/doctest)
-target_compile_features(arduino_dsmr_test PRIVATE cxx_std_20)
-target_link_libraries(arduino_dsmr_test PRIVATE mbedtls bearssl)
-target_include_directories(arduino_dsmr_test SYSTEM PUBLIC $<TARGET_PROPERTY:mbedtls,INTERFACE_INCLUDE_DIRECTORIES>) # disable warnings for mbedtls headers
-target_compile_options(arduino_dsmr_test PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/Zc:preprocessor>) # enable __VA_OPT__ on MSVC
+# dsmr_parser_test
+file(GLOB_RECURSE dsmr_parser_test_src_files CONFIGURE_DEPENDS "src/*.h" "src/*.cpp")
+add_executable(dsmr_parser_test ${dsmr_parser_test_src_files})
+target_include_directories(dsmr_parser_test PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_BINARY_DIR}/doctest)
+target_compile_features(dsmr_parser_test PRIVATE cxx_std_20)
+target_link_libraries(dsmr_parser_test PRIVATE mbedtls bearssl)
+target_include_directories(dsmr_parser_test SYSTEM PUBLIC $<TARGET_PROPERTY:mbedtls,INTERFACE_INCLUDE_DIRECTORIES>) # disable warnings for mbedtls headers
+target_compile_options(dsmr_parser_test PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/Zc:preprocessor>) # enable __VA_OPT__ on MSVC
 
 # enable warnings
-add_library(arduino_dsmr_test_warnings INTERFACE)
-myproject_set_project_warnings(arduino_dsmr_test_warnings ON "" "" "" "")
-target_link_libraries(arduino_dsmr_test PRIVATE arduino_dsmr_test_warnings)
+add_library(dsmr_parser_test_warnings INTERFACE)
+myproject_set_project_warnings(dsmr_parser_test_warnings ON "" "" "" "")
+target_link_libraries(dsmr_parser_test PRIVATE dsmr_parser_test_warnings)
 
 # enable sanitizers: address, leak, undefined behaviour
-add_library(arduino_dsmr_test_sanitizers INTERFACE)
-myproject_enable_sanitizers(arduino_dsmr_test_sanitizers ON ON ON OFF OFF)
-target_link_libraries(arduino_dsmr_test PRIVATE arduino_dsmr_test_sanitizers)
+add_library(dsmr_parser_test_sanitizers INTERFACE)
+myproject_enable_sanitizers(dsmr_parser_test_sanitizers ON ON ON OFF OFF)
+target_link_libraries(dsmr_parser_test PRIVATE dsmr_parser_test_sanitizers)

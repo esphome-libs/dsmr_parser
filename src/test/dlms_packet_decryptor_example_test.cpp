@@ -1,3 +1,4 @@
+#include "dsmr_parser/aes128gcm_mbedtls.h" // or "dsmr_parser/aes128gcm_bearssl.h"
 #include "dsmr_parser/dlms_packet_decryptor.h"
 #include "dsmr_parser/fields.h"
 #include "dsmr_parser/parser.h"
@@ -13,19 +14,20 @@ struct Uart {
 
 using namespace dsmr_parser;
 
-std::array<uint8_t, 4000> dlms_packet_buffer; // Buffer to store the incoming bytes from the P1 port.
+std::array<uint8_t, 4000> dlms_packet_buffer; // Buffer to store the incoming bytes from the P1 port and the decrypted dsmr telegram
 size_t dlms_packet_buffer_position = 0;       // needed to accumulate bytes
 
-std::array<char, 4000> decrypted_telegram_buffer; // Buffer in which the decrypted dsmr telegram will be stored.
+DlmsPacketDecryptor<Aes128GcmMbedTls> decryptor;
 
-DlmsPacketDecryptor decryptor(decrypted_telegram_buffer);
-
-long last_read = 0; // timestamp of the last byte received. Needed to detect inter-frame gaps.
+long last_read_timestamp = 0; // timestamp of the last byte received. Needed to detect inter-frame gaps.
 
 Uart uart; // UART connected to P1 port
 
 // This encryption key is unique per smart meter and must be provided by the electricity company.
-const auto encryption_key = *DlmsPacketDecryptor::EncryptionKey::FromHex("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+const auto encryption_key = *Aes128GcmEncryptionKey::from_hex("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+
+// You must set the encryption key before calling `decryptor.decrypt_inplace` method.
+inline void set_encryption_key() { decryptor.set_encryption_key(encryption_key); }
 
 // Main loop that reads data from the P1 port and decrypts packets.
 inline void loop() {
@@ -42,22 +44,22 @@ inline void loop() {
     dlms_packet_buffer_position++;
 
     // save the time when we received the last byte
-    last_read = millis();
+    last_read_timestamp = millis();
   }
 
   // detect inter-frame delay. If no byte is received for more than 1 second, then the packet is complete
-  if ((millis() - last_read) > 1000 && dlms_packet_buffer_position > 0) {
-    auto res = decryptor.decrypt({dlms_packet_buffer.data(), dlms_packet_buffer_position}, encryption_key);
+  if ((millis() - last_read_timestamp) > 1000 && dlms_packet_buffer_position > 0) {
+    std::optional<std::string_view> dsmr_telegram = decryptor.decrypt_inplace({dlms_packet_buffer.data(), dlms_packet_buffer_position});
+    dlms_packet_buffer_position = 0; // reset for the next packet
 
     // check that decryption was successful
-    if (res.error()) {
-      printf("Failed to decrypt packet: %s\n", to_string(*res.error()));
+    if (!dsmr_telegram) {
+      printf("Failed to decrypt packet\n");
       return;
     }
 
-    std::string_view decrypted_dsmr_telegram = *res.dsmr_telegram();
     // decrypted_dsmr_telegram is a normal DSMR telegram with a CRC checksum at the end.
-    printf("Decrypted DSMR telegram:\n%s\n", std::string(decrypted_dsmr_telegram).c_str());
+    printf("Decrypted DSMR telegram:\n%s\n", std::string(*dsmr_telegram).c_str());
     // Parse it using P1Parser::parse() method.
   }
 }

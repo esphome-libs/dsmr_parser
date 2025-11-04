@@ -2,8 +2,8 @@
 #include "util.h"
 #include <cstdint>
 #include <optional>
-#include <string_view>
 #include <span>
+#include <string_view>
 
 namespace dsmr_parser {
 

@@ -260,14 +260,14 @@ const uint8_t WATER_MBUS_ID = DSMR_WATER_MBUS_ID;
 const uint8_t THERMAL_MBUS_ID = DSMR_THERMAL_MBUS_ID;
 const uint8_t SUB_MBUS_ID = DSMR_SUB_MBUS_ID;
 
-#define DEFINE_FIELD(fieldname, value_t, obis, field_t, ...) \
-  struct fieldname : field_t<fieldname, ##__VA_ARGS__> {     \
-    value_t fieldname;                                       \
-    bool fieldname##_present = false;                        \
-    static inline constexpr ObisId id = obis;                \
-    static inline constexpr char name[] = #fieldname;        \
-    value_t& val() { return fieldname; }                     \
-    bool& present() { return fieldname##_present; }          \
+#define DEFINE_FIELD(fieldname, value_t, obis, field_t, ...)         \
+  struct fieldname : field_t<fieldname __VA_OPT__(, __VA_ARGS__)> {  \
+    value_t fieldname;                                               \
+    bool fieldname##_present = false;                                \
+    static inline constexpr ObisId id = obis;                        \
+    static inline constexpr char name[] = #fieldname;                \
+    value_t& val() { return fieldname; }                             \
+    bool& present() { return fieldname##_present; }                  \
   }
 
 // Meter identification. This is not a normal field, but a specially-formatted first line of the message

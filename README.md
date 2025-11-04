@@ -17,7 +17,7 @@ The primary goal is to make the parser independent of the Arduino framework and 
 # How to use
 ## General usage
 The library is header-only. Add the `src/dsmr_parser` folder to your project.<br>
-Note: [dlms_packet_decryptor.h](https://github.com/esphome-libs/dsmr_parser/blob/main/src/dsmr_parser/dlms_packet_decryptor.h) depends on [Mbed TLS](https://www.trustedfirmware.org/projects/mbed-tls/) library. It is already included in the `ESP-IDF` framework and can be easily added to any other platforms.
+Note: [dlms_packet_decryptor.h](https://github.com/esphome-libs/dsmr_parser/blob/main/src/dsmr_parser/dlms_packet_decryptor.h) depends on [Mbed TLS](https://www.trustedfirmware.org/projects/mbed-tls/) or [BearSsl](https://bearssl.org/) library. `Mbed TLS` is already included in the `ESP-IDF` framework and can be easily added to any other platforms.
 
 ## Usage from PlatformIO
 The library is available on the PlatformIO registry:<br>

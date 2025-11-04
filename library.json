@@ -1,6 +1,6 @@
 {
   "name": "dsmr_parser",
-  "version": "1.0",
+  "version": "1.0.0",
   "description": "Fork of arduino-dsmr. Doesn't depend on the Arduino framework and has many bug fixes and code quality improvements. Supports encrypted DSMR packets.",
   "keywords": "dsmr",
   "repository": {
@@ -8,5 +8,9 @@
     "url": "https://github.com/esphome-libs/arduino-dsmr"
   },
   "license": "MIT",
-  "export": { "include": [ "src/dsmr_parser/*.h" ] }
+  "export": {
+    "include": [
+      "src/dsmr_parser/*.h"
+    ]
+  }
 }

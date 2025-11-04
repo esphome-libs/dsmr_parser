@@ -1,0 +1,9 @@
+description: "A parser for Dutch Smart Meter Requirements (DSMR) telegrams."
+url: "https://github.com/esphome-libs/dsmr_parser"
+repository: "https://github.com/esphome-libs/dsmr_parser.git"
+files:
+  use_gitignore: true
+  exclude:
+    - .clang-format
+    - .gitignore
+    - library.json

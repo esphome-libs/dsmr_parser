@@ -17,7 +17,7 @@ build_and_test() {
         -G "Ninja" \
         -D CMAKE_BUILD_TYPE="$build_type"
   cmake --build "$buildDir/${target}-$build_type"
-  "$buildDir/${target}-$build_type/arduino_dsmr_test"
+  "$buildDir/${target}-$build_type/dsmr_parser_test"
 }
 
 build_and_test Debug linux-gcc

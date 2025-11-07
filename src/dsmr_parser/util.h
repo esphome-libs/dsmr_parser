@@ -84,19 +84,21 @@ struct ParseResult final : public _ParseResult<ParseResult<T>, T> {
   const char* err = nullptr;
   const char* ctx = nullptr;
 
-  ParseResult& fail(const char* error, const char* context = nullptr) {
+  ParseResult& fail(const char* error, const char* context = nullptr) noexcept {
     this->err = error;
     this->ctx = context;
     return *this;
   }
-  ParseResult& until(const char* nextToken) {
+
+  ParseResult& until(const char* nextToken) noexcept {
     this->next = nextToken;
     return *this;
   }
+
   ParseResult() = default;
 
   template <typename T2>
-  ParseResult(const ParseResult<T2>& other) : next(other.next), err(other.err), ctx(other.ctx) {}
+  ParseResult(const ParseResult<T2>& other) noexcept : next(other.next), err(other.err), ctx(other.ctx) {}
 
   // Returns the error, including context in a fancy multi-line format.
   // The start and end passed are the first and one-past-the-end
@@ -136,10 +138,11 @@ struct ParseResult final : public _ParseResult<ParseResult<T>, T> {
 // An OBIS id is 6 bytes, usually noted as a-b:c.d.e.f. Here we put them in an array for easy parsing.
 struct ObisId final {
   std::array<uint8_t, 6> v{};
-  constexpr ObisId(const uint8_t a, const uint8_t b = 255, const uint8_t c = 255, const uint8_t d = 255, const uint8_t e = 255, const uint8_t f = 255) noexcept
+  constexpr explicit ObisId(const uint8_t a, const uint8_t b = 255, const uint8_t c = 255, const uint8_t d = 255, const uint8_t e = 255,
+                            const uint8_t f = 255) noexcept
       : v{a, b, c, d, e, f} {};
   ObisId() = default;
-  bool operator==(const ObisId&) const = default;
+  auto operator<=>(const ObisId&) const = default;
 };
 
 }

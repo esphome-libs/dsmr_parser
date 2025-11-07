@@ -1,21 +1,9 @@
 #pragma once
 
 #include "util.h"
+#include <unordered_map>
 
 namespace dsmr_parser {
-
-// uses polynomial x^16+x^15+x^2+1
-inline uint16_t crc16_update(uint16_t crc, uint8_t data) {
-  crc ^= data;
-  for (size_t i = 0; i < 8; ++i) {
-    if (crc & 1) {
-      crc = (crc >> 1) ^ 0xA001;
-    } else {
-      crc = (crc >> 1);
-    }
-  }
-  return crc;
-}
 
 // ParsedData is a template for the result of parsing a Dsmr P1 message.
 // You pass the fields you want to add to it as template arguments.
@@ -41,25 +29,38 @@ inline uint16_t crc16_update(uint16_t crc, uint8_t data) {
 // to loop over all the fields inside it.
 template <typename... Ts>
 struct ParsedData final : Ts... {
+private:
+  static const auto& fields_map() {
+    static const auto& m = []() {
+      const auto hasher = [](const ObisId& id) noexcept {
+        std::uint64_t x = 0;
+        std::memcpy(&x, id.v.data(), 6);
+        return std::hash<std::uint64_t>{}(x);
+      };
+      using FieldParseFunc = ParseResult<void> (*)(ParsedData&, const char*, const char*);
+      std::unordered_map<ObisId, FieldParseFunc, decltype(hasher)> tmp;
+      (void)std::initializer_list<int>{(tmp.emplace(Ts::id,
+                                                    [](ParsedData& self, const char* str, const char* end) {
+                                                      auto& field = static_cast<Ts&>(self);
+                                                      ParseResult<void> res;
+                                                      if (field.present())
+                                                        return res.fail("Duplicate field", str);
+                                                      field.present() = true;
+                                                      return field.parse(str, end);
+                                                    }),
+                                        0)...};
+      return tmp;
+    }();
+    return m;
+  }
+
+public:
   ParseResult<void> parse_line(const ObisId& obisId, const char* str, const char* end) {
-    ParseResult<void> res;
-    const auto& try_one = [&](auto& field) -> bool {
-      using FieldType = std::decay_t<decltype(field)>;
-      if (obisId != FieldType::id) {
-        return false;
-      }
-
-      if (field.present())
-        res = ParseResult<void>().fail("Duplicate field", str);
-      else {
-        field.present() = true;
-        res = field.parse(str, end);
-      }
-      return true;
-    };
-
-    const bool found = (try_one(static_cast<Ts&>(*this)) || ...);
-    return found ? res : ParseResult<void>().until(str);
+    const auto& m = fields_map();
+    auto it = m.find(obisId);
+    if (it == m.end())
+      return ParseResult<void>().until(str);
+    return it->second(*this, str, end);
   }
 
   template <typename F>
@@ -166,7 +167,7 @@ struct NumParser final {
 };
 
 struct ObisIdParser final {
-  static ParseResult<ObisId> parse(const char* str, const char* end) {
+  static ParseResult<ObisId> parse(const char* str, const char* end) noexcept {
     // Parse a Obis ID of the form 1-2:3.4.5.6
     // Stops parsing on the first unrecognized character. Any unparsed
     // parts are set to 255.
@@ -208,7 +209,7 @@ struct CrcParser final {
 private:
   static const size_t CRC_LEN = 4;
 
-  static bool hex_nibble(char c, uint8_t& out) {
+  static bool hex_nibble(char c, uint8_t& out) noexcept {
     if (c >= '0' && c <= '9') {
       out = static_cast<uint8_t>(c - '0');
       return true;
@@ -247,13 +248,27 @@ public:
 };
 
 struct P1Parser final {
+private:
+  // uses polynomial x^16+x^15+x^2+1
+  static uint16_t crc16_update(uint16_t crc, uint8_t data) noexcept {
+    crc ^= data;
+    for (size_t i = 0; i < 8; ++i) {
+      if (crc & 1) {
+        crc = (crc >> 1) ^ 0xA001;
+      } else {
+        crc = (crc >> 1);
+      }
+    }
+    return crc;
+  }
 
+public:
   // Parse a complete P1 telegram. The string passed should start
   // with '/' and run up to and including the ! and the following
   // four byte checksum. It's ok if the string is longer, the .next
   // pointer in the result will indicate the next unprocessed byte.
   template <typename... Ts>
-  static ParseResult<void> parse(ParsedData<Ts...>* data, const char* str, size_t n, bool unknown_error = false, bool check_crc = true) {
+  static ParseResult<void> parse(ParsedData<Ts...>& data, const char* str, size_t n, bool unknown_error = false, bool check_crc = true) {
     ParseResult<void> res;
 
     const char* const buf_begin = str;
@@ -303,7 +318,7 @@ struct P1Parser final {
   // character after the leading /, end should point to the ! before the
   // checksum. Does not verify the checksum.
   template <typename... Ts>
-  static ParseResult<void> parse_data(ParsedData<Ts...>* data, const char* str, const char* end, bool unknown_error = false) {
+  static ParseResult<void> parse_data(ParsedData<Ts...>& data, const char* str, const char* end, bool unknown_error = false) {
     // Split into lines and parse those
     const char* line_end = str;
     const char* line_start = str;
@@ -327,7 +342,7 @@ struct P1Parser final {
         //
         // Offer it for processing using the all-ones Obis ID, which
         // is not otherwise valid.
-        ParseResult<void> tmp = data->parse_line(ObisId(255, 255, 255, 255, 255, 255), line_start, line_end);
+        ParseResult<void> tmp = data.parse_line(ObisId(255, 255, 255, 255, 255, 255), line_start, line_end);
         if (tmp.err)
           return tmp;
         line_start = ++line_end;
@@ -383,7 +398,7 @@ struct P1Parser final {
   }
 
   template <typename Data>
-  static ParseResult<void> parse_line(Data* data, const char* line, const char* end, bool unknown_error) {
+  static ParseResult<void> parse_line(Data& data, const char* line, const char* end, bool unknown_error) {
     ParseResult<void> res;
     if (line == end)
       return res;
@@ -392,7 +407,7 @@ struct P1Parser final {
     if (idres.err)
       return idres;
 
-    ParseResult<void> datares = data->parse_line(idres.result, idres.next, end);
+    ParseResult<void> datares = data.parse_line(idres.result, idres.next, end);
     if (datares.err)
       return datares;
 
@@ -407,5 +422,4 @@ struct P1Parser final {
     return res.until(end);
   }
 };
-
 }

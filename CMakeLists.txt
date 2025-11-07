@@ -40,7 +40,7 @@ include(${cmake_template_SOURCE_DIR}/cmake/CompilerWarnings.cmake)
 include(${cmake_template_SOURCE_DIR}/cmake/Sanitizers.cmake)
 
 # dsmr_parser_test
-file(GLOB_RECURSE dsmr_parser_test_src_files CONFIGURE_DEPENDS "src/*.h" "src/*.cpp")
+file(GLOB_RECURSE dsmr_parser_test_src_files CONFIGURE_DEPENDS "src/*.h" "src/*.cpp" "tests/*.h" "tests/*.cpp")
 add_executable(dsmr_parser_test ${dsmr_parser_test_src_files})
 target_include_directories(dsmr_parser_test PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_BINARY_DIR}/doctest)
 target_compile_features(dsmr_parser_test PRIVATE cxx_std_20)

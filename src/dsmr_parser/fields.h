@@ -26,7 +26,7 @@ struct ParsedField {
     f.apply(*static_cast<T*>(this));
   }
   // By defaults, fields have no unit
-  static const char* unit() { return ""; }
+  static const char* unit() noexcept { return ""; }
 };
 
 template <typename T, size_t minlen, size_t maxlen>
@@ -54,9 +54,9 @@ struct TimestampField : StringField<T, 13, 13> {};
 // efficient integer value. The unit() and int_unit() methods on
 // FixedField return the corresponding units for these values.
 struct FixedValue {
-  operator float() const { return val(); }
-  float val() const { return static_cast<float>(_value) / 1000.0f; }
-  uint32_t int_val() const { return _value; }
+  operator float() const noexcept { return val(); }
+  float val() const noexcept { return static_cast<float>(_value) / 1000.0f; }
+  uint32_t int_val() const noexcept { return _value; }
 
   uint32_t _value;
 };
@@ -90,8 +90,8 @@ struct FixedField : ParsedField<T> {
     return res_float;
   }
 
-  static const char* unit() { return _unit; }
-  static const char* int_unit() { return _int_unit; }
+  static const char* unit() noexcept { return _unit; }
+  static const char* int_unit() noexcept { return _int_unit; }
 };
 
 struct TimestampedFixedValue : public FixedValue {
@@ -153,7 +153,7 @@ struct IntField : ParsedField<T> {
     return res;
   }
 
-  static const char* unit() { return _unit; }
+  static const char* unit() noexcept { return _unit; }
 };
 
 // Take the average value of multiple values. Example:

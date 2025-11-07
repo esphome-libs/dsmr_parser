@@ -68,7 +68,7 @@ TEST_CASE("PacketAccumulator example") {
 
       // Parse the packet.
       // Specify `check_crc` as false, since the accumulator already checked the CRC and didn't include it in the packet
-      P1Parser::parse(&data, packet.data(), packet.size(), /* unknown_error */ false, /* check_crc */ false);
+      P1Parser::parse(data, packet.data(), packet.size(), /* unknown_error */ false, /* check_crc */ false);
 
       // Now you can use the parsed data.
       printf("Identification: %s\n", data.identification.c_str());

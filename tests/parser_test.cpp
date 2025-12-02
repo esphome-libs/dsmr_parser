@@ -614,7 +614,7 @@ TEST_CASE("Whitespace after OBIS ID") {
                     "0-1:24.2.1 (000101000000W)(00000000.0000)\r\n"
                     "!";
   ParsedData<gas_delivered> data;
-  const auto& res = P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/false, /*check_crc=*/false);
+  const auto& res = P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/ true, /*check_crc=*/false);
   REQUIRE(std::string(res.err) == "Missing (");
 }
 
@@ -624,7 +624,7 @@ TEST_CASE("Use integer fallback unit") {
                     "1-0:14.7.0(50*Hz)\r\n"
                     "!";
   ParsedData<gas_delivered, frequency> data;
-  P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/false, /*check_crc=*/false);
+  P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/ true, /*check_crc=*/false);
   REQUIRE(data.gas_delivered == 0.012f);
   REQUIRE(data.frequency == 0.05f);
 }
@@ -654,4 +654,16 @@ TEST_CASE("AveragedFixedField works properly for an empty array") {
 
   REQUIRE(data.active_energy_import_maximum_demand_last_13_months.val() == 0.0f);
   REQUIRE(data.energy_delivered_tariff1.val() == 1.0f);
+}
+
+TEST_CASE("Should parse gas_delivered_gj field") {
+  const auto& msg = "/identification\r\n"
+                    "0-1:24.2.1(251129203200W)(3.829*GJ)\r\n"
+                    "!";
+
+  ParsedData<gas_delivered_gj> data;
+
+  const auto& res = P1Parser::parse(data, msg, std::size(msg), /* unknown_error */ true, /* check_crc */ false);
+  REQUIRE(res.err == nullptr);
+  REQUIRE(data.gas_delivered_gj == 3.829f);
 }

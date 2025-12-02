@@ -71,23 +71,13 @@ struct FixedValue {
 template <typename T, const char* _unit, const char* _int_unit>
 struct FixedField : ParsedField<T> {
   ParseResult<void> parse(const char* str, const char* end) {
-    // Check if the value is a float value, plus its expected unit type.
-    ParseResult<uint32_t> res_float = NumParser::parse(3, _unit, str, end);
-    if (!res_float.err) {
-      static_cast<T*>(this)->val()._value = res_float.result;
-      return res_float;
-    }
-    // If not, then check for an int value, plus its expected unit type.
-    // This accomodates for some smart meters that publish int values instead
-    // of floats. E.g. most meters would publish "1-0:1.8.0(000441.879*kWh)",
+    // Some smart meters publish int values instead of a float.
+    // E.g. most meters would publish "1-0:1.8.0(000441.879*kWh)",
     // but some use "1-0:1.8.0(000441879*Wh)" instead.
-    ParseResult<uint32_t> res_int = NumParser::parse(0, _int_unit, str, end);
-    if (!res_int.err) {
-      static_cast<T*>(this)->val()._value = res_int.result;
-      return res_int;
-    }
-    // If not, then return the initial error result for the float parsing step.
-    return res_float;
+    auto res = NumParser::parse_float_or_int(3, _unit, _int_unit, str, end);
+    if (!res.err)
+      static_cast<T*>(this)->val()._value = res.result;
+    return res;
   }
 
   static const char* unit() noexcept { return _unit; }
@@ -199,12 +189,9 @@ struct AveragedFixedField : public FixedField<T, _unit, _int_unit> {
         return res;
 
       // parse value (04.329*kW) or (04329*W)
-      auto monthValue = NumParser::parse(3, _unit, res.next, end);
-      if (monthValue.err) {
-        monthValue = NumParser::parse(0, _int_unit, res.next, end);
-        if (monthValue.err)
-          return monthValue;
-      }
+      auto monthValue = NumParser::parse_float_or_int(3, _unit, _int_unit, res.next, end);
+      if (monthValue.err)
+        return monthValue;
 
       average.next = monthValue.next;
       average.result += monthValue.result;
@@ -260,14 +247,14 @@ const uint8_t WATER_MBUS_ID = DSMR_WATER_MBUS_ID;
 const uint8_t THERMAL_MBUS_ID = DSMR_THERMAL_MBUS_ID;
 const uint8_t SUB_MBUS_ID = DSMR_SUB_MBUS_ID;
 
-#define DEFINE_FIELD(fieldname, value_t, obis, field_t, ...)         \
-  struct fieldname : field_t<fieldname __VA_OPT__(, __VA_ARGS__)> {  \
-    value_t fieldname;                                               \
-    bool fieldname##_present = false;                                \
-    static inline constexpr ObisId id = obis;                        \
-    static inline constexpr char name[] = #fieldname;                \
-    value_t& val() { return fieldname; }                             \
-    bool& present() { return fieldname##_present; }                  \
+#define DEFINE_FIELD(fieldname, value_t, obis, field_t, ...)        \
+  struct fieldname : field_t<fieldname __VA_OPT__(, __VA_ARGS__)> { \
+    value_t fieldname;                                              \
+    bool fieldname##_present = false;                               \
+    static inline constexpr ObisId id = obis;                       \
+    static inline constexpr char name[] = #fieldname;               \
+    value_t& val() { return fieldname; }                            \
+    bool& present() { return fieldname##_present; }                 \
   }
 
 // Meter identification. This is not a normal field, but a specially-formatted first line of the message
@@ -514,6 +501,8 @@ DEFINE_FIELD(gas_valve_position, uint8_t, ObisId(0, GAS_MBUS_ID, 24, 4, 0), IntF
 // Last 5-minute value (temperature converted), gas delivered to client
 // in m3, including decimal values and capture time (Note: 4.x spec has "hourly value")
 DEFINE_FIELD(gas_delivered, TimestampedFixedValue, ObisId(0, GAS_MBUS_ID, 24, 2, 1), TimestampedFixedField, units::m3, units::dm3);
+// Eneco in the Netherlands has smart meters for their district heating network, which uses the gas_delivered in GJ rather than m3
+DEFINE_FIELD(gas_delivered_gj, TimestampedFixedValue, ObisId(0, GAS_MBUS_ID, 24, 2, 1), TimestampedFixedField, units::GJ, units::MJ);
 // _BE
 DEFINE_FIELD(gas_delivered_be, TimestampedFixedValue, ObisId(0, GAS_MBUS_ID, 24, 2, 3), TimestampedFixedField, units::m3, units::dm3);
 DEFINE_FIELD(gas_delivered_text, std::string, ObisId(0, GAS_MBUS_ID, 24, 3, 0), RawField);

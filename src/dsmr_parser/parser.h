@@ -100,6 +100,18 @@ static constexpr char INVALID_NUMBER[] = "Invalid number";
 static constexpr char INVALID_UNIT[] = "Invalid unit";
 
 struct NumParser final {
+  static ParseResult<uint32_t> parse_float_or_int(const size_t max_decimals, const char* float_unit, const char* int_unit, const char* str, const char* end) {
+    auto float_res = NumParser::parse(max_decimals, float_unit, str, end);
+    if (!float_res.err)
+      return float_res;
+
+    auto int_res = NumParser::parse(0, int_unit, str, end);
+    if (!int_res.err)
+      return int_res;
+
+    return float_res;
+  }
+
   static ParseResult<uint32_t> parse(size_t max_decimals, const char* unit, const char* str, const char* end) {
     ParseResult<uint32_t> res;
     if (str >= end || *str != '(')

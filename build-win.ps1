@@ -46,14 +46,14 @@ Info "Find Visual Studio installation path"
 $vswhereCommand = Get-Command -Name "${Env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
 $installationPath = & $vswhereCommand -prerelease -latest -property installationPath
 
-Info "Open Visual Studio 2022 Developer PowerShell amd64"
-& "$installationPath\Common7\Tools\Launch-VsDevShell.ps1" -Arch amd64
+Info "Open Visual Studio Developer PowerShell amd64"
+& "$installationPath\Common7\Tools\Launch-VsDevShell.ps1" -SkipAutomaticLocation -Arch amd64
 
 BuildAndTest -buildType Debug -arch amd64
 BuildAndTest -buildType Release -arch amd64
 
-Info "Open Visual Studio 2022 Developer PowerShell x86"
-& "$installationPath\Common7\Tools\Launch-VsDevShell.ps1" -Arch x86
+Info "Open Visual Studio Developer PowerShell x86"
+& "$installationPath\Common7\Tools\Launch-VsDevShell.ps1" -SkipAutomaticLocation -Arch x86
 
 BuildAndTest -buildType Debug -arch x86
 BuildAndTest -buildType Release -arch x86

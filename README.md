@@ -21,7 +21,7 @@ Note: [dlms_packet_decryptor.h](https://github.com/esphome-libs/dsmr_parser/blob
 
 ## Usage from PlatformIO
 The library is available on the PlatformIO registry:<br>
-**TODO: configure deployment to PlatformIO **
+[esphome/dsmr_parser](https://registry.platformio.org/libraries/esphome/dsmr_parser)
 
 # Examples
 * How to use the parser
@@ -36,8 +36,6 @@ The library is available on the PlatformIO registry:<br>
 [matthijskooijman](https://github.com/matthijskooijman) is the original creator of this DSMR parser.
 [glmnet](https://github.com/glmnet) and [zuidwijk](https://github.com/zuidwijk) continued work on this parser in the fork [glmnet/arduino-dsmr](https://github.com/glmnet/arduino-dsmr). They used the parser to create [ESPHome DSMR](https://esphome.io/components/sensor/dsmr/) component.
 After that, the work on the `arduino-dsmr` parser stopped.
-Since then, some issues and unmerged pull requests have accumulated. Additionally, the dependency on the Arduino framework causes various issues for some ESP32 boards.
-This fork addresses the existing issues and makes the parser usable on any platform.
 
 ## The reasons `dsmr_parser` fork was created
 * Dependency on the Arduino framework limits the applicability of this parser. For example, it is not possible to use it on Linux.
@@ -46,9 +44,10 @@ This fork addresses the existing issues and makes the parser usable on any platf
 * Lack of support for encrypted DSMR messages.
 
 # How to work with the code
-* You can open the code using any IDE that supports CMake.
-  * `build-windows.ps1` script needs `Visual Studio 2022` to be installed.
-  * `build-linux.sh` script needs `clang` to be installed.
+* You can open the code using any IDE that supports CMake. It will allow you to modify the code and run the tests.
+* Notes if you want to run the build scripts:
+  * `build-win.ps1` needs `Visual Studio` to be installed.
+  * `build-linux.sh` needs `clang` to be installed.
 
 # References
 * [DSMR parser in Python](https://github.com/ndokter/dsmr_parser/tree/master) - alternative DSMR parser implementation in Python.

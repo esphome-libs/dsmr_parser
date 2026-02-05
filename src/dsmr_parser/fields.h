@@ -566,11 +566,11 @@ DEFINE_FIELD(active_energy_import_maximum_demand_running_month, TimestampedFixed
 DEFINE_FIELD(active_energy_import_maximum_demand_last_13_months, FixedValue, ObisId(0, 0, 98, 1, 0), AveragedFixedField, units::kW, units::W);
 
 // Image Core Version and checksum
-DEFINE_FIELD(fw_core_version, FixedValue, ObisId(1, 0, 0, 2, 0), FixedField, units::none, units::none);
-DEFINE_FIELD(fw_core_checksum, std::string, ObisId(1, 0, 0, 2, 8), StringField, 0, 8);
+DEFINE_FIELD(fw_core_version, std::string, ObisId(1, 0, 0, 2, 0), StringField, 0, 96);
+DEFINE_FIELD(fw_core_checksum, std::string, ObisId(1, 0, 0, 2, 8), StringField, 0, 96);
 // Image Module Version and checksum
-DEFINE_FIELD(fw_module_version, FixedValue, ObisId(1, 1, 0, 2, 0), FixedField, units::none, units::none);
-DEFINE_FIELD(fw_module_checksum, std::string, ObisId(1, 1, 0, 2, 8), StringField, 0, 8);
+DEFINE_FIELD(fw_module_version, std::string, ObisId(1, 1, 0, 2, 0), StringField, 0, 96);
+DEFINE_FIELD(fw_module_checksum, std::string, ObisId(1, 1, 0, 2, 8), StringField, 0, 96);
 
 }
 }

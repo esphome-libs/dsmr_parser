@@ -44,8 +44,12 @@ TEST_CASE("Should parse all fields in the DSMR message correctly") {
                     "0-1:24.1.0(003)\r\n"
                     "0-1:96.1.0(0000000000000000000000000000000000)\r\n"
                     "0-1:24.2.1(150117180000W)(00473.789*m3)\r\n"
+                    "1-0:0.2.0((ER11))\r\n"
+                    "1-0:0.2.8(1.0.smth smth-123)\r\n"
+                    "1-1:0.2.0((ER12)\r\n"
+                    "1-1:0.2.8(ER13))\r\n"
                     "0-1:24.4.0(1)\r\n"
-                    "!f2C9\r\n";
+                    "!96c9\r\n";
 
   ParsedData<
       /* String */ identification,
@@ -96,7 +100,11 @@ TEST_CASE("Should parse all fields in the DSMR message correctly") {
       /* String */ water_equipment_id,
       /* uint8_t */ water_valve_position,
       /* TimestampedFixedValue */ water_delivered,
-      /* AveragedFixedField */ active_energy_import_maximum_demand_last_13_months>
+      /* AveragedFixedField */ active_energy_import_maximum_demand_last_13_months,
+      /* String */ fw_core_version,
+      /* String */ fw_core_checksum,
+      /* String */ fw_module_version,
+      /* String */ fw_module_checksum>
       data;
 
   auto res = P1Parser::parse(data, msg, std::size(msg), true);
@@ -134,6 +142,10 @@ TEST_CASE("Should parse all fields in the DSMR message correctly") {
   REQUIRE(data.gas_valve_position == 1);
   REQUIRE(data.gas_delivered == 473.789f);
   REQUIRE(data.active_energy_import_maximum_demand_last_13_months.val() == 4.429f);
+  REQUIRE(data.fw_core_version == "(ER11)");
+  REQUIRE(data.fw_core_checksum == "1.0.smth smth-123");
+  REQUIRE(data.fw_module_version == "(ER12");
+  REQUIRE(data.fw_module_checksum == "ER13)");
 }
 
 TEST_CASE("Should report an error if the crc has incorrect format") {

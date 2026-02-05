@@ -83,6 +83,11 @@ struct StringParser final {
     while (str_end < end && *str_end != ')')
       ++str_end;
 
+    // We can have )) at the end. Thus we should add the first ) to the string.
+    // Like in the situation when we parse "((ER11))".
+    if (str_end + 1 < end && *(str_end + 1) == ')')
+      ++str_end;
+
     if (str_end == end)
       return res.fail("Missing )", str_end);
 
@@ -367,9 +372,20 @@ public:
     // We need to track brackets to handle cases like:
     //   0-0:96.13.0(303132333435
     //   30313233343)
+    // Also we need to handle cases like:
+    //   1-0:0.2.0((ER11))
     bool open_bracket_found = false;
     while (line_end < end) {
       char c = *line_end;
+      char next_c = (line_end + 1 < end) ? *(line_end + 1) : '\0';
+
+      if ((c == '(' && next_c == '(') || (c == ')' && next_c == ')')) {
+        // we have a case like:
+        //   1-0:0.2.0((ER11))
+        // Treat double brackets as a single bracket for bracket tracking
+        line_end++;
+        c = next_c;
+      }
 
       if (c == '(') {
         if (open_bracket_found) {

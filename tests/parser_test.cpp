@@ -49,7 +49,14 @@ TEST_CASE("Should parse all fields in the DSMR message correctly") {
                     "1-1:0.2.0((ER12)\r\n"
                     "1-1:0.2.8(ER13))\r\n"
                     "0-1:24.4.0(1)\r\n"
-                    "!96c9\r\n";
+                    "1-0:16.24.0(-03.618*kW)\r\n"
+                    "1-0:13.7.0(0.998)\r\n"
+                    "1-0:33.7.0(0.975)\r\n"
+                    "1-0:53.7.0(0.963)\r\n"
+                    "1-0:73.7.0(0.987)\r\n"
+                    "1-0:13.3.0(0.000)\r\n"
+                    "1-0:0.8.2(00900*s)\r\n"
+                    "!\r\n";
 
   ParsedData<
       /* String */ identification,
@@ -104,10 +111,17 @@ TEST_CASE("Should parse all fields in the DSMR message correctly") {
       /* String */ fw_core_version,
       /* String */ fw_core_checksum,
       /* String */ fw_module_version,
-      /* String */ fw_module_checksum>
+      /* String */ fw_module_checksum,
+      /* FixedValue */ active_demand_net,
+      /* FixedValue */ power_factor,
+      /* FixedValue */ power_factor_l1,
+      /* FixedValue */ power_factor_l2,
+      /* FixedValue */ power_factor_l3,
+      /* FixedValue */ min_power_factor,
+      /* FixedValue */ period_3_for_instantaneous_values>
       data;
 
-  auto res = P1Parser::parse(data, msg, std::size(msg), true);
+  auto res = P1Parser::parse(data, msg, std::size(msg), /* unknown_error */ true, /* check_crc */ false);
   REQUIRE(res.err == nullptr);
 
   // Print all values
@@ -146,6 +160,29 @@ TEST_CASE("Should parse all fields in the DSMR message correctly") {
   REQUIRE(data.fw_core_checksum == "1.0.smth smth-123");
   REQUIRE(data.fw_module_version == "(ER12");
   REQUIRE(data.fw_module_checksum == "ER13)");
+  REQUIRE(data.active_demand_net == -3.618f);
+  REQUIRE(data.power_factor == 0.998f);
+  REQUIRE(data.power_factor_l1 == 0.975f);
+  REQUIRE(data.power_factor_l2 == 0.963f);
+  REQUIRE(data.power_factor_l3 == 0.987f);
+  REQUIRE(data.min_power_factor == 0.0f);
+  REQUIRE(data.period_3_for_instantaneous_values == 900);
+}
+
+TEST_CASE("Should calculate CRC correctly") {
+  const auto& msg = "/KFM5KAIFA-METER\r\n"
+                    "\r\n"
+                    "1-0:1.8.1(000671.578*kWh)\r\n"
+                    "1-0:1.7.0(00.318*kW)\r\n"
+                    "!1e1D\r\n";
+
+  ParsedData<
+      /* String */ identification,
+      /* FixedValue */ power_delivered>
+      data;
+
+  auto res = P1Parser::parse(data, msg, std::size(msg), /* unknown_error */ false, /* check_crc */ true);
+  REQUIRE(res.err == nullptr);
 }
 
 TEST_CASE("Should report an error if the crc has incorrect format") {

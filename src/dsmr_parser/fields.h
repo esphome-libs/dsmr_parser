@@ -56,9 +56,9 @@ struct TimestampField : StringField<T, 13, 13> {};
 struct FixedValue {
   operator float() const noexcept { return val(); }
   float val() const noexcept { return static_cast<float>(_value) / 1000.0f; }
-  uint32_t int_val() const noexcept { return _value; }
+  int32_t int_val() const noexcept { return _value; }
 
-  uint32_t _value;
+  int32_t _value;
 };
 
 // Floating point numbers in the message never have more than 3 decimal
@@ -132,7 +132,7 @@ struct LastFixedField : public FixedField<T, _unit, _int_unit> {
 template <typename T, const char* _unit>
 struct IntField : ParsedField<T> {
   ParseResult<void> parse(const char* str, const char* end) {
-    ParseResult<uint32_t> res = NumParser::parse(0, _unit, str, end);
+    ParseResult<int32_t> res = NumParser::parse(0, _unit, str, end);
     if (!res.err) {
       auto& dst = static_cast<T*>(this)->val();
       using Dst = std::remove_reference_t<decltype(dst)>;
@@ -174,10 +174,10 @@ struct AveragedFixedField : public FixedField<T, _unit, _int_unit> {
     if (res.err)
       return res;
 
-    ParseResult<uint32_t> average;
-    average.succeed(0u);
+    ParseResult<int32_t> average;
+    average.succeed(0);
     average.next = res.next;
-    for (uint32_t i = 0; i < numberOfValues.result; i++) {
+    for (int32_t i = 0; i < numberOfValues.result; i++) {
       // skip date (230201000000W)
       res = StringParser::parse_string(1, 20, average.next, end);
       if (res.err)
@@ -482,8 +482,7 @@ DEFINE_FIELD(apparent_return_power_l3, FixedValue, ObisId(1, 0, 70, 7, 0), Fixed
 // Active Demand Avg3 Plus in W resolution
 DEFINE_FIELD(active_demand_power, FixedValue, ObisId(1, 0, 1, 24, 0), FixedField, units::kW, units::W);
 // Active Demand Avg3 Net in W resolution
-// TODO: 1-0.16.24.0.255 can have negative value, this library is not ready for negative numbers.
-// DEFINE_FIELD(active_demand_net, int32_t, ObisId(1, 0, 16, 24, 0), IntField, units::kW);
+DEFINE_FIELD(active_demand_net, FixedValue, ObisId(1, 0, 16, 24, 0), FixedField, units::kW, units::W);
 // Active Demand Avg3 Absolute  in W resolution
 DEFINE_FIELD(active_demand_abs, FixedValue, ObisId(1, 0, 15, 24, 0), FixedField, units::kW, units::W);
 
@@ -571,6 +570,18 @@ DEFINE_FIELD(fw_core_checksum, std::string, ObisId(1, 0, 0, 2, 8), StringField, 
 // Image Module Version and checksum
 DEFINE_FIELD(fw_module_version, std::string, ObisId(1, 1, 0, 2, 0), StringField, 0, 96);
 DEFINE_FIELD(fw_module_checksum, std::string, ObisId(1, 1, 0, 2, 8), StringField, 0, 96);
+
+// Instantaneous power factor
+DEFINE_FIELD(power_factor, FixedValue, ObisId(1, 0, 13, 7, 0), FixedField, units::none, units::none);
+// Instantaneous power factor in phase L1, L2, L3
+DEFINE_FIELD(power_factor_l1, FixedValue, ObisId(1, 0, 33, 7, 0), FixedField, units::none, units::none);
+DEFINE_FIELD(power_factor_l2, FixedValue, ObisId(1, 0, 53, 7, 0), FixedField, units::none, units::none);
+DEFINE_FIELD(power_factor_l3, FixedValue, ObisId(1, 0, 73, 7, 0), FixedField, units::none, units::none);
+// Minimum Power factor
+DEFINE_FIELD(min_power_factor, FixedValue, ObisId(1, 0, 13, 3, 0), FixedField, units::none, units::none);
+
+// Measurement Period 3 for Instantaneous values
+DEFINE_FIELD(period_3_for_instantaneous_values, uint32_t, ObisId(1, 0, 0, 8, 2), IntField, units::s);
 
 }
 }

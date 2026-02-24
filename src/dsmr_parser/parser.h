@@ -105,7 +105,7 @@ static constexpr char INVALID_NUMBER[] = "Invalid number";
 static constexpr char INVALID_UNIT[] = "Invalid unit";
 
 struct NumParser final {
-  static ParseResult<uint32_t> parse_float_or_int(const size_t max_decimals, const char* float_unit, const char* int_unit, const char* str, const char* end) {
+  static ParseResult<int32_t> parse_float_or_int(const size_t max_decimals, const char* float_unit, const char* int_unit, const char* str, const char* end) {
     auto float_res = NumParser::parse(max_decimals, float_unit, str, end);
     if (!float_res.err)
       return float_res;
@@ -117,36 +117,41 @@ struct NumParser final {
     return float_res;
   }
 
-  static ParseResult<uint32_t> parse(size_t max_decimals, const char* unit, const char* str, const char* end) {
-    ParseResult<uint32_t> res;
+  static ParseResult<int32_t> parse(size_t max_decimals, const char* unit, const char* str, const char* end) {
+    ParseResult<int32_t> res;
     if (str >= end || *str != '(')
       return res.fail("Missing (", str);
 
-    const char* num_start = str + 1; // Skip (
-    const char* num_end = num_start;
+    const char* cur_symbol = str + 1; // Skip (
 
-    uint32_t value = 0;
+    bool negative = false;
+    if (cur_symbol < end && *cur_symbol == '-') {
+      negative = true;
+      ++cur_symbol;
+    }
+
+    int32_t value = 0;
 
     // Parse integer part
-    while (num_end < end && !strchr("*.)", *num_end)) {
-      if (*num_end < '0' || *num_end > '9')
-        return res.fail(INVALID_NUMBER, num_end);
+    while (cur_symbol < end && !strchr("*.)", *cur_symbol)) {
+      if (*cur_symbol < '0' || *cur_symbol > '9')
+        return res.fail(INVALID_NUMBER, cur_symbol);
       value *= 10;
-      value += static_cast<uint32_t>(*num_end - '0');
-      ++num_end;
+      value += (*cur_symbol - '0');
+      ++cur_symbol;
     }
 
     // Parse decimal part, if any
-    if (max_decimals && num_end < end && *num_end == '.') {
-      ++num_end;
+    if (max_decimals && cur_symbol < end && *cur_symbol == '.') {
+      ++cur_symbol;
 
-      while (num_end < end && !strchr("*)", *num_end) && max_decimals) {
+      while (cur_symbol < end && !strchr("*)", *cur_symbol) && max_decimals) {
         max_decimals--;
-        if (*num_end < '0' || *num_end > '9')
-          return res.fail(INVALID_NUMBER, num_end);
+        if (*cur_symbol < '0' || *cur_symbol > '9')
+          return res.fail(INVALID_NUMBER, cur_symbol);
         value *= 10;
-        value += static_cast<uint32_t>(*num_end - '0');
-        ++num_end;
+        value += (*cur_symbol - '0');
+        ++cur_symbol;
       }
     }
 
@@ -156,19 +161,18 @@ struct NumParser final {
 
     // Workaround for https://github.com/matthijskooijman/arduino-dsmr/issues/50
     // If value is 0, then we allow missing unit.
-    if (unit && *unit && (num_end >= end || (*num_end != '*' && *num_end != '.')) && value == 0) {
-      num_end = std::find(num_end, end, ')');
+    if (unit && *unit && (cur_symbol >= end || (*cur_symbol != '*' && *cur_symbol != '.')) && value == 0) {
+      cur_symbol = std::find(cur_symbol, end, ')');
     }
 
-    // If a unit was passed, check that the unit in the messages
-    // messages the unit passed.
+    // If a unit was passed, check that the unit in the message matches the unit passed.
     else if (unit && *unit) {
-      if (num_end >= end || *num_end != '*')
-        return res.fail("Missing unit", num_end);
-      const char* unit_start = ++num_end; // skip *
-      while (num_end < end && *num_end != ')' && *unit) {
+      if (cur_symbol >= end || *cur_symbol != '*')
+        return res.fail("Missing unit", cur_symbol);
+      const char* unit_start = ++cur_symbol; // skip *
+      while (cur_symbol < end && *cur_symbol != ')' && *unit) {
         // Next character in units do not match?
-        if (std::tolower(static_cast<unsigned char>(*num_end++)) != std::tolower(static_cast<unsigned char>(*unit++)))
+        if (std::tolower(static_cast<unsigned char>(*cur_symbol++)) != std::tolower(static_cast<unsigned char>(*unit++)))
           return res.fail(INVALID_UNIT, unit_start);
       }
       // At the end of the message unit, but not the passed unit?
@@ -176,10 +180,13 @@ struct NumParser final {
         return res.fail(INVALID_UNIT, unit_start);
     }
 
-    if (num_end >= end || *num_end != ')')
-      return res.fail("Extra data", num_end);
+    if (cur_symbol >= end || *cur_symbol != ')')
+      return res.fail("Extra data", cur_symbol);
 
-    return res.succeed(value).until(num_end + 1); // Skip )
+    if (negative)
+      value = -value;
+
+    return res.succeed(value).until(cur_symbol + 1); // Skip )
   }
 };
 

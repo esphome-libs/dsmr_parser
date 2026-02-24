@@ -34,8 +34,8 @@ target_include_directories(bearssl SYSTEM PUBLIC "${bearsll_SOURCE_DIR}/inc" PRI
 # cmake_template for warnings and sanitizers
 FetchContent_Populate(
   cmake_template
-  URL https://github.com/cpp-best-practices/cmake_template/archive/1015c6b88410df411c0cc0413e3e64c33d7a8331.zip
-  URL_HASH SHA512=b7ad5b05eb21e5cb8159f3bd8b05615ee55489e5ab6a543bfe50ba05c8c8935106a6870b438c97ca3894108650a4a542a810707954cbe6b3beb9c6de82f1bde7)
+  URL https://github.com/cpp-best-practices/cmake_template/archive/0a32e3ff530534f04d7a73817d563bb26eea1b5a.zip
+  URL_HASH SHA512=4cab8e5f75054b46c131447e0b9b4f36239eed7c8e5c3a01a09f1454126ea4fc24a5426a4662966cd925673f25383220a56644cab7551cb70aa40870e4577c0b)
 include(${cmake_template_SOURCE_DIR}/cmake/CompilerWarnings.cmake)
 include(${cmake_template_SOURCE_DIR}/cmake/Sanitizers.cmake)
 

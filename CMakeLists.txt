@@ -5,48 +5,53 @@ endif()
 
 cmake_minimum_required(VERSION 3.20)
 project(dsmr_parser)
+enable_testing()
 include(FetchContent)
 
 # doctest
-file(DOWNLOAD
-  https://github.com/doctest/doctest/releases/download/v2.4.12/doctest.h
-  ${CMAKE_BINARY_DIR}/doctest/doctest.h
-  EXPECTED_HASH SHA512=5a69cc6a5e874691877fbd1cea661ec736c2d78d38791cb22a12398c2731ea6d07e7edda4bd1efde2a65df9e4ddd4836f6571d9b04e0241d520790573634065a)
+FetchContent_Declare(
+  doctest
+  GIT_REPOSITORY https://github.com/doctest/doctest
+  GIT_TAG v2.5.0)
+FetchContent_MakeAvailable(doctest)
+include("${doctest_SOURCE_DIR}/scripts/cmake/doctest.cmake")
 
 # mbedtls
-FetchContent_Populate(
-  mded_tls
-  URL https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.4/mbedtls-3.6.4.tar.bz2
-  URL_HASH SHA512=6671fb8fcaa832e5b115dfdce8f78baa6a4aea71f5c89a640583634cdee27aefe3bf4be075744da91f7c3ae5ea4e0c765c8fc3937b5cfd9ea73d87ef496524da)
 set(ENABLE_PROGRAMS OFF CACHE INTERNAL "")
 set(ENABLE_TESTING OFF CACHE INTERNAL "")
-add_subdirectory(${mded_tls_SOURCE_DIR})
+set(MBEDTLS_FATAL_WARNINGS OFF CACHE INTERNAL "")
+FetchContent_Declare(
+  mbedtls
+  GIT_REPOSITORY https://github.com/Mbed-TLS/mbedtls
+  GIT_TAG v3.6.5)
+FetchContent_MakeAvailable(mbedtls)
 
 # bearssl
 FetchContent_Populate(
-  bearsll
-  URL https://bearssl.org/bearssl-0.6.tar.gz
-  URL_HASH SHA512=f9ed25683cfc6c4abe7f1203a2b82ed101ee4c9e0f9ab60755b6a09c8d1e8e4f64d413624e7bb9c4b0033f909a2e4568a1d916cc6ce4736222900691e1f8359a)
-file(GLOB_RECURSE bearssl_sources CONFIGURE_DEPENDS "${bearsll_SOURCE_DIR}/src/*.c")
+  bearssl
+  GIT_REPOSITORY https://bearssl.org/git/BearSSL
+  GIT_TAG v0.6)
+file(GLOB_RECURSE bearssl_sources CONFIGURE_DEPENDS "${bearssl_SOURCE_DIR}/src/*.c")
 add_library(bearssl STATIC ${bearssl_sources})
-target_include_directories(bearssl SYSTEM PUBLIC "${bearsll_SOURCE_DIR}/inc" PRIVATE "${bearsll_SOURCE_DIR}/src")
+target_include_directories(bearssl SYSTEM PUBLIC "${bearssl_SOURCE_DIR}/inc" PRIVATE "${bearssl_SOURCE_DIR}/src")
 
 # cmake_template for warnings and sanitizers
 FetchContent_Populate(
   cmake_template
-  URL https://github.com/cpp-best-practices/cmake_template/archive/0a32e3ff530534f04d7a73817d563bb26eea1b5a.zip
-  URL_HASH SHA512=4cab8e5f75054b46c131447e0b9b4f36239eed7c8e5c3a01a09f1454126ea4fc24a5426a4662966cd925673f25383220a56644cab7551cb70aa40870e4577c0b)
+  GIT_REPOSITORY https://github.com/cpp-best-practices/cmake_template
+  GIT_TAG 0a32e3ff530534f04d7a73817d563bb26eea1b5a)
 include(${cmake_template_SOURCE_DIR}/cmake/CompilerWarnings.cmake)
 include(${cmake_template_SOURCE_DIR}/cmake/Sanitizers.cmake)
 
 # dsmr_parser_test
 file(GLOB_RECURSE dsmr_parser_test_src_files CONFIGURE_DEPENDS "src/*.h" "src/*.cpp" "tests/*.h" "tests/*.cpp")
 add_executable(dsmr_parser_test ${dsmr_parser_test_src_files})
-target_include_directories(dsmr_parser_test PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_BINARY_DIR}/doctest)
+target_include_directories(dsmr_parser_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_compile_features(dsmr_parser_test PRIVATE cxx_std_20)
-target_link_libraries(dsmr_parser_test PRIVATE mbedtls bearssl)
+target_link_libraries(dsmr_parser_test PRIVATE mbedtls bearssl doctest::doctest)
 target_include_directories(dsmr_parser_test SYSTEM PUBLIC $<TARGET_PROPERTY:mbedtls,INTERFACE_INCLUDE_DIRECTORIES>) # disable warnings for mbedtls headers
 target_compile_options(dsmr_parser_test PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/Zc:preprocessor>) # enable __VA_OPT__ on MSVC
+doctest_discover_tests(dsmr_parser_test)
 
 # enable warnings
 add_library(dsmr_parser_test_warnings INTERFACE)
@@ -54,6 +59,18 @@ myproject_set_project_warnings(dsmr_parser_test_warnings ON "" "" "" "")
 target_link_libraries(dsmr_parser_test PRIVATE dsmr_parser_test_warnings)
 
 # enable sanitizers: address, leak, undefined behaviour
-add_library(dsmr_parser_test_sanitizers INTERFACE)
-myproject_enable_sanitizers(dsmr_parser_test_sanitizers ON ON ON OFF OFF)
-target_link_libraries(dsmr_parser_test PRIVATE dsmr_parser_test_sanitizers)
+add_library(dsmr_parser_sanitizers INTERFACE)
+if(APPLE)
+  # Leak sanitizer is not supported on Macos:
+  #   clang++: error: unsupported option '-fsanitize=leak' for target 'arm64-apple-darwin24.6.0'
+  set(ENABLE_SANITIZER_LEAK OFF)
+else()
+  set(ENABLE_SANITIZER_LEAK ON)
+endif()
+myproject_enable_sanitizers(dsmr_parser_sanitizers ON ${ENABLE_SANITIZER_LEAK} ON OFF OFF)
+target_link_libraries(dsmr_parser_test PUBLIC dsmr_parser_sanitizers)
+if(MSVC)
+  cmake_path(GET CMAKE_CXX_COMPILER PARENT_PATH MSVC_TOOLS_DIR)
+  file(GLOB ASAN_RUNTIME_FILES "${MSVC_TOOLS_DIR}/clang_rt.asan_dynamic-*")
+  file(COPY ${ASAN_RUNTIME_FILES} DESTINATION "${CMAKE_BINARY_DIR}")
+endif()

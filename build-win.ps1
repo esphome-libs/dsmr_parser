@@ -31,7 +31,7 @@ Function BuildAndTest($buildType, $arch) {
   CheckReturnCodeOfPreviousCommand "cmake build failed"
 
   Info "Run tests"
-  & "$thisBuildDir/dsmr_parser_test.exe"
+  ctest --test-dir $thisBuildDir
   CheckReturnCodeOfPreviousCommand "tests failed"
 }
 

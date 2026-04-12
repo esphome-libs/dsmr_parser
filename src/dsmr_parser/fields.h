@@ -336,7 +336,7 @@ DEFINE_FIELD(energy_returned_tariff1_il, FixedValue, ObisId(1, 1, 2, 8, 11), Fix
 // Meter Reading electricity delivered by client (Tariff 2) in 0,001 kWh
 DEFINE_FIELD(energy_returned_tariff2_il, FixedValue, ObisId(1, 1, 2, 8, 12), FixedField, units::kWh, units::Wh);
 // Meter Reading electricity delivered by client (Tariff 3) in 0,001 kWh
-DEFINE_FIELD(energy_returned_tariff2_il, FixedValue, ObisId(1, 1, 2, 8, 13), FixedField, units::kWh, units::Wh);
+DEFINE_FIELD(energy_returned_tariff3_il, FixedValue, ObisId(1, 1, 2, 8, 13), FixedField, units::kWh, units::Wh);
 // Tariff indicator electricity.
 DEFINE_FIELD(electricity_tariff_il, std::string, ObisId(0, 0, 96, 14, 1), StringField, 2, 2);
 DEFINE_FIELD(electricity_failure_log_il, std::string, ObisId(1, 0, 99, 1, 0), RawField);

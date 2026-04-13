@@ -8,7 +8,6 @@ using namespace dsmr_parser;
 using namespace fields;
 
 void P1Parser_some_function() {
-  const auto& msg = "";
   ParsedData<identification, p1_version> data;
-  P1Parser::parse(data, msg, std::size(msg), true);
+  DsmrParser::parse(data, DsmrUnencryptedTelegram("msg"), true);
 }

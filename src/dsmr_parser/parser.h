@@ -1,460 +1,290 @@
 #pragma once
 
 #include "util.h"
-#include <unordered_map>
+#include <cctype>
+#include <optional>
+#include <string_view>
 
 namespace dsmr_parser {
 
-// ParsedData is a template for the result of parsing a Dsmr P1 message.
+// ParsedData is a template for the result of parsing a DSMR telegram.
 // You pass the fields you want to add to it as template arguments.
-//
-// This template will then generate a class that extends all the fields
-// passed (the fields really are classes themselves). Since each field
-// class has a single member variable, with the same name as the field
-// class, all of these fields will be available on the generated class.
-//
-// In other words, if I have:
-//
-// using MyData = ParsedData<
-//  identification,
-//  equipment_id
-// >;
-//
-// MyData data;
-//
-// then I can refer to the fields like data.identification and
-// data.equipment_id normally.
-//
-// Furthermore, this class offers some helper methods that can be used
-// to loop over all the fields inside it.
+// Each field becomes a base class, exposing its member variable directly.
 template <typename... Ts>
 struct ParsedData final : Ts... {
-private:
-  static const auto& fields_map() {
-    static const auto& m = []() {
-      const auto hasher = [](const ObisId& id) noexcept {
-        std::uint64_t x = 0;
-        std::memcpy(&x, id.v.data(), 6);
-        return std::hash<std::uint64_t>{}(x);
-      };
-      using FieldParseFunc = ParseResult<void> (*)(ParsedData&, const char*, const char*);
-      std::unordered_map<ObisId, FieldParseFunc, decltype(hasher)> tmp;
-      (void)std::initializer_list<int>{(tmp.emplace(Ts::id,
-                                                    [](ParsedData& self, const char* str, const char* end) {
-                                                      auto& field = static_cast<Ts&>(self);
-                                                      ParseResult<void> res;
-                                                      if (field.present())
-                                                        return res.fail("Duplicate field", str);
-                                                      field.present() = true;
-                                                      return field.parse(str, end);
-                                                    }),
-                                        0)...};
-      return tmp;
-    }();
-    return m;
-  }
-
-public:
-  ParseResult<void> parse_line(const ObisId& obisId, const char* str, const char* end) {
-    const auto& m = fields_map();
-    auto it = m.find(obisId);
-    if (it == m.end())
-      return ParseResult<void>().until(str);
-    return it->second(*this, str, end);
-  }
-
-  template <typename F>
-  void applyEach(F&& f) {
-    (Ts::apply(f), ...);
+  std::optional<std::string_view> parse_line(const ObisId& obis_id, std::string_view input) {
+    std::optional<std::string_view> res = input;
+    auto try_field = [&](auto& field) -> bool {
+      using F = std::remove_reference_t<decltype(field)>;
+      if (!(F::id == obis_id))
+        return false;
+      if (field.present()) {
+        Logger::log(LogLevel::ERROR, "Duplicate field [%.*s]", static_cast<int>(input.size()), input.data());
+        res = std::nullopt;
+      } else {
+        field.present() = true;
+        res = field.parse(input);
+      }
+      return true;
+    };
+    (void)try_field;
+    (void)(try_field(static_cast<Ts&>(*this)) || ...);
+    return res;
   }
 
   bool all_present() { return (Ts::present() && ...); }
 };
 
-struct StringParser final {
-  static ParseResult<std::string> parse_string(size_t min, size_t max, const char* str, const char* end) {
-    ParseResult<std::string> res;
-    if (str >= end || *str != '(')
-      return res.fail("Missing (", str);
-
-    const char* str_start = str + 1; // Skip (
-    const char* str_end = str_start;
-
-    while (str_end < end && *str_end != ')')
-      ++str_end;
-
-    // We can have )) at the end. Thus we should add the first ) to the string.
-    // Like in the situation when we parse "((ER11))".
-    if (str_end + 1 < end && *(str_end + 1) == ')')
-      ++str_end;
-
-    if (str_end == end)
-      return res.fail("Missing )", str_end);
-
-    const auto& len = static_cast<size_t>(str_end - str_start);
-    if (len < min || len > max)
-      return res.fail("Invalid string length", str_start);
-
-    res.result.append(str_start, len);
-
-    return res.until(str_end + 1); // Skip )
-  }
-};
-
-static constexpr char INVALID_NUMBER[] = "Invalid number";
-static constexpr char INVALID_UNIT[] = "Invalid unit";
-
-struct NumParser final {
-  static ParseResult<int32_t> parse_float_or_int(const size_t max_decimals, const char* float_unit, const char* int_unit, const char* str, const char* end) {
-    auto float_res = NumParser::parse(max_decimals, float_unit, str, end);
-    if (!float_res.err)
-      return float_res;
-
-    auto int_res = NumParser::parse(0, int_unit, str, end);
-    if (!int_res.err)
-      return int_res;
-
-    return float_res;
+// Parse a parenthesized string: (content)
+// Handles double-closing brackets like ((ER11))
+inline std::optional<std::string_view> parse_string(std::string_view& out, size_t min, size_t max, std::string_view input) {
+  if (input.empty() || input.front() != '(') {
+    Logger::log(LogLevel::ERROR, "Missing ( '%.*s'", static_cast<int>(input.size()), input.data());
+    return std::nullopt;
   }
 
-  static ParseResult<int32_t> parse(size_t max_decimals, const char* unit, const char* str, const char* end) {
-    ParseResult<int32_t> res;
-    if (str >= end || *str != '(')
-      return res.fail("Missing (", str);
+  size_t pos = 1;
+  while (pos < input.size() && input[pos] != ')')
+    ++pos;
 
-    const char* cur_symbol = str + 1; // Skip (
+  // Handle )) at the end — include the first ) in the string
+  if (pos + 1 < input.size() && input[pos + 1] == ')')
+    ++pos;
 
-    bool negative = false;
-    if (cur_symbol < end && *cur_symbol == '-') {
-      negative = true;
-      ++cur_symbol;
-    }
-
-    int32_t value = 0;
-
-    // Parse integer part
-    while (cur_symbol < end && !strchr("*.)", *cur_symbol)) {
-      if (*cur_symbol < '0' || *cur_symbol > '9')
-        return res.fail(INVALID_NUMBER, cur_symbol);
-      value *= 10;
-      value += (*cur_symbol - '0');
-      ++cur_symbol;
-    }
-
-    // Parse decimal part, if any
-    if (max_decimals && cur_symbol < end && *cur_symbol == '.') {
-      ++cur_symbol;
-
-      while (cur_symbol < end && !strchr("*)", *cur_symbol) && max_decimals) {
-        max_decimals--;
-        if (*cur_symbol < '0' || *cur_symbol > '9')
-          return res.fail(INVALID_NUMBER, cur_symbol);
-        value *= 10;
-        value += (*cur_symbol - '0');
-        ++cur_symbol;
-      }
-    }
-
-    // Fill in missing decimals with zeroes
-    while (max_decimals--)
-      value *= 10;
-
-    // Workaround for https://github.com/matthijskooijman/arduino-dsmr/issues/50
-    // If value is 0, then we allow missing unit.
-    if (unit && *unit && (cur_symbol >= end || (*cur_symbol != '*' && *cur_symbol != '.')) && value == 0) {
-      cur_symbol = std::find(cur_symbol, end, ')');
-    }
-
-    // If a unit was passed, check that the unit in the message matches the unit passed.
-    else if (unit && *unit) {
-      if (cur_symbol >= end || *cur_symbol != '*')
-        return res.fail("Missing unit", cur_symbol);
-      const char* unit_start = ++cur_symbol; // skip *
-      while (cur_symbol < end && *cur_symbol != ')' && *unit) {
-        // Next character in units do not match?
-        if (std::tolower(static_cast<unsigned char>(*cur_symbol++)) != std::tolower(static_cast<unsigned char>(*unit++)))
-          return res.fail(INVALID_UNIT, unit_start);
-      }
-      // At the end of the message unit, but not the passed unit?
-      if (*unit)
-        return res.fail(INVALID_UNIT, unit_start);
-    }
-
-    if (cur_symbol >= end || *cur_symbol != ')')
-      return res.fail("Extra data", cur_symbol);
-
-    if (negative)
-      value = -value;
-
-    return res.succeed(value).until(cur_symbol + 1); // Skip )
+  if (pos == input.size()) {
+    Logger::log(LogLevel::ERROR, "Missing ) '%.*s'", static_cast<int>(input.size()), input.data());
+    return std::nullopt;
   }
-};
 
-struct ObisIdParser final {
-  static ParseResult<ObisId> parse(const char* str, const char* end) noexcept {
-    // Parse a Obis ID of the form 1-2:3.4.5.6
-    // Stops parsing on the first unrecognized character. Any unparsed
-    // parts are set to 255.
-    ParseResult<ObisId> res;
-    ObisId& id = res.result;
-    res.next = str;
-    uint8_t part = 0;
-    while (res.next < end) {
-      char c = *res.next;
+  auto len = pos - 1;
+  if (len < min || len > max) {
+    Logger::log(LogLevel::ERROR, "Invalid string length '%.*s'", static_cast<int>(input.size()), input.data());
+    return std::nullopt;
+  }
 
-      if (c >= '0' && c <= '9') {
-        const auto& digit = c - '0';
-        if (id.v[part] > 25 || (id.v[part] == 25 && digit > 5))
-          return res.fail("Obis ID has number over 255", res.next);
-        id.v[part] = static_cast<uint8_t>(id.v[part] * 10 + digit);
-      } else if (part == 0 && c == '-') {
-        part++;
-      } else if (part == 1 && c == ':') {
-        part++;
-      } else if (part > 1 && part < 5 && c == '.') {
-        part++;
-      } else {
-        break;
-      }
-      ++res.next;
+  out = input.substr(1, len);
+  return input.substr(pos + 1);
+}
+
+// Parse a numeric value in parentheses: ([-]digits[.decimals][*unit])
+inline std::optional<std::string_view> parse_num(int32_t& out, size_t max_decimals, const char* unit, std::string_view input, bool log_errors = true) {
+  if (input.empty() || input.front() != '(') {
+    if (log_errors)
+      Logger::log(LogLevel::ERROR, "Missing ( '%.*s'", static_cast<int>(input.size()), input.data());
+    return std::nullopt;
+  }
+
+  size_t p = 1;
+  bool negative = (p < input.size() && input[p] == '-');
+  if (negative)
+    ++p;
+
+  int32_t value = 0;
+
+  while (p < input.size() && input[p] != '.' && input[p] != '*' && input[p] != ')') {
+    if (input[p] < '0' || input[p] > '9') {
+      if (log_errors)
+        Logger::log(LogLevel::ERROR, "Invalid number '%.*s'", static_cast<int>(input.size()), input.data());
+      return std::nullopt;
     }
+    value = value * 10 + (input[p] - '0');
+    ++p;
+  }
 
-    if (res.next == str)
-      return res.fail("OBIS id Empty", str);
+  size_t remaining = max_decimals;
+  if (remaining && p < input.size() && input[p] == '.') {
+    ++p;
+    while (p < input.size() && input[p] != '*' && input[p] != ')' && remaining) {
+      if (input[p] < '0' || input[p] > '9') {
+        if (log_errors)
+          Logger::log(LogLevel::ERROR, "Invalid number '%.*s'", static_cast<int>(input.size()), input.data());
+        return std::nullopt;
+      }
+      value = value * 10 + (input[p] - '0');
+      --remaining;
+      ++p;
+    }
+  }
 
-    for (++part; part < 6; ++part)
-      id.v[part] = 255;
+  while (remaining--)
+    value *= 10;
 
+  if (unit && *unit) {
+    // Value 0 allows missing unit (workaround for some meters)
+    if (value == 0 && (p >= input.size() || (input[p] != '*' && input[p] != '.'))) {
+      auto close = input.find(')', p);
+      p = (close != std::string_view::npos) ? close : input.size();
+    } else {
+      if (p >= input.size() || input[p] != '*') {
+        if (log_errors)
+          Logger::log(LogLevel::ERROR, "Missing unit '%.*s'", static_cast<int>(input.size()), input.data());
+        return std::nullopt;
+      }
+      ++p;
+      const char* u = unit;
+      while (p < input.size() && input[p] != ')' && *u) {
+        if (std::tolower(static_cast<unsigned char>(input[p])) != std::tolower(static_cast<unsigned char>(*u))) {
+          if (log_errors)
+            Logger::log(LogLevel::ERROR, "Invalid unit '%.*s'", static_cast<int>(input.size()), input.data());
+          return std::nullopt;
+        }
+        ++p;
+        ++u;
+      }
+      if (*u) {
+        if (log_errors)
+          Logger::log(LogLevel::ERROR, "Invalid unit '%.*s'", static_cast<int>(input.size()), input.data());
+        return std::nullopt;
+      }
+    }
+  }
+
+  if (p >= input.size() || input[p] != ')') {
+    if (log_errors)
+      Logger::log(LogLevel::ERROR, "Extra data '%.*s'", static_cast<int>(input.size()), input.data());
+    return std::nullopt;
+  }
+
+  out = negative ? -value : value;
+  return input.substr(p + 1);
+}
+
+// Try float unit first, fall back to integer unit
+inline std::optional<std::string_view> parse_float_or_int(int32_t& out, size_t max_decimals, const char* float_unit, const char* int_unit,
+                                                          std::string_view input) {
+  auto res = parse_num(out, max_decimals, float_unit, input, /*log_errors=*/false);
+  if (res)
     return res;
-  }
-};
+  return parse_num(out, 0, int_unit, input);
+}
 
-struct CrcParser final {
-private:
-  static const size_t CRC_LEN = 4;
-
-  static bool hex_nibble(char c, uint8_t& out) noexcept {
+// Parse OBIS identifier (a-b:c.d.e.f)
+inline std::optional<std::string_view> parse_obis(ObisId& id, std::string_view input) {
+  size_t pos = 0;
+  uint8_t part = 0;
+  while (pos < input.size()) {
+    char c = input[pos];
     if (c >= '0' && c <= '9') {
-      out = static_cast<uint8_t>(c - '0');
-      return true;
-    }
-    if (c >= 'A' && c <= 'F') {
-      out = static_cast<uint8_t>(c - 'A' + 10);
-      return true;
-    }
-    if (c >= 'a' && c <= 'f') {
-      out = static_cast<uint8_t>(c - 'a' + 10);
-      return true;
-    }
-    return false;
-  }
-
-public:
-  // Parse a crc value. str must point to the first of the four hex
-  // bytes in the CRC.
-  static ParseResult<uint16_t> parse(const char* str, const char* end) {
-    ParseResult<uint16_t> res;
-
-    if (str + CRC_LEN > end)
-      return res.fail("No checksum found", str);
-
-    uint16_t value = 0;
-    for (size_t i = 0; i < CRC_LEN; ++i) {
-      uint8_t nibble;
-      if (!hex_nibble(str[i], nibble))
-        return res.fail("Incomplete or malformed checksum", str + i);
-      value = static_cast<uint16_t>((value << 4) | nibble);
-    }
-
-    res.next = str + CRC_LEN;
-    return res.succeed(value);
-  }
-};
-
-struct P1Parser final {
-private:
-  // uses polynomial x^16+x^15+x^2+1
-  static uint16_t crc16_update(uint16_t crc, uint8_t data) noexcept {
-    crc ^= data;
-    for (size_t i = 0; i < 8; ++i) {
-      if (crc & 1) {
-        crc = (crc >> 1) ^ 0xA001;
-      } else {
-        crc = (crc >> 1);
+      auto digit = static_cast<uint8_t>(c - '0');
+      if (id.v[part] > 25 || (id.v[part] == 25 && digit > 5)) {
+        Logger::log(LogLevel::ERROR, "Obis ID has number over 255 '%.*s'", static_cast<int>(input.size()), input.data());
+        return std::nullopt;
       }
+      id.v[part] = static_cast<uint8_t>(id.v[part] * 10 + digit);
+    } else if (part == 0 && c == '-') {
+      part++;
+    } else if (part == 1 && c == ':') {
+      part++;
+    } else if (part > 1 && part < 5 && c == '.') {
+      part++;
+    } else {
+      break;
     }
-    return crc;
+    ++pos;
+  }
+
+  if (pos == 0) {
+    Logger::log(LogLevel::ERROR, "OBIS id Empty '%.*s'", static_cast<int>(input.size()), input.data());
+    return std::nullopt;
+  }
+
+  for (++part; part < 6; ++part)
+    id.v[part] = 255;
+
+  return input.substr(pos);
+}
+
+struct DsmrParser final {
+private:
+  template <typename Data>
+  static bool parse_line(Data& data, std::string_view input, bool unknown_error) {
+    if (input.empty())
+      return true;
+
+    ObisId id;
+    auto idres = parse_obis(id, input);
+    if (!idres)
+      return false;
+
+    auto datares = data.parse_line(id, *idres);
+    if (!datares)
+      return false;
+
+    if ((*datares).data() != (*idres).data() && !(*datares).empty()) {
+      Logger::log(LogLevel::ERROR, "Trailing characters on data line '%.*s'", static_cast<int>(input.size()), input.data());
+      return false;
+    }
+    if ((*datares).data() == (*idres).data() && unknown_error) {
+      Logger::log(LogLevel::ERROR, "Unknown field '%.*s'", static_cast<int>(input.size()), input.data());
+      return false;
+    }
+
+    return true;
   }
 
 public:
-  // Parse a complete P1 telegram. The string passed should start
-  // with '/' and run up to and including the ! and the following
-  // four byte checksum. It's ok if the string is longer, the .next
-  // pointer in the result will indicate the next unprocessed byte.
   template <typename... Ts>
-  static ParseResult<void> parse(ParsedData<Ts...>& data, const char* str, size_t n, bool unknown_error = false, bool check_crc = true) {
-    ParseResult<void> res;
+  static bool parse(ParsedData<Ts...>& data, DsmrUnencryptedTelegram telegram, bool unknown_error = false) {
+    // Strip leading '/' and trailing '!'
+    auto input = telegram.content().substr(1, telegram.content().size() - 2);
 
-    const char* const buf_begin = str;
-    const char* const buf_end = str + n;
-
-    if (!n || *buf_begin != '/')
-      return res.fail("Data should start with /", buf_begin);
-
-    // The payload starts after '/', and runs up to (but not including) '!'
-    const char* const data_begin = buf_begin + 1;
-
-    // Find the terminating '!' (or the end of buffer if not present)
-    const char* term = std::find(data_begin, buf_end, '!');
-    if (term == buf_end)
-      return res.fail("Data should end with !");
-
-    if (check_crc) {
-      // With CRC enabled, '!' must exist and be followed by 4 hex chars.
-      if (term >= buf_end)
-        return res.fail("No checksum found", term);
-
-      // Compute CRC over '/' .. '!' (inclusive).
-      uint16_t crc = 0;
-      for (const char* p = buf_begin; p <= term; ++p)
-        crc = crc16_update(crc, static_cast<uint8_t>(*p));
-
-      // Parse and verify the 4-hex checksum after '!'
-      ParseResult<uint16_t> check = CrcParser::parse(term + 1, buf_end);
-      if (check.err)
-        return check;
-      if (check.result != crc)
-        return res.fail("Checksum mismatch", term + 1);
-
-      // Parse payload (between '/' and '!')
-      res = parse_data(data, data_begin, term, unknown_error);
-      res.next = check.next; // Advance past checksum
-      return res;
-    }
-
-    // No CRC checking: parse up to '!' if present, otherwise up to buf_end.
-    res = parse_data(data, data_begin, term, unknown_error);
-    res.next = (term < buf_end) ? term : buf_end;
-    return res;
-  }
-
-  // Parse the data part of a message. Str should point to the first
-  // character after the leading /, end should point to the ! before the
-  // checksum. Does not verify the checksum.
-  template <typename... Ts>
-  static ParseResult<void> parse_data(ParsedData<Ts...>& data, const char* str, const char* end, bool unknown_error = false) {
-    // Split into lines and parse those
-    const char* line_end = str;
-    const char* line_start = str;
+    size_t pos = 0;
+    size_t line_start = 0;
 
     // Parse ID line
-    while (line_end < end) {
-      if (*line_end == '\r' || *line_end == '\n') {
-        // The first identification line looks like:
-        // XXX5<id string>
-        // The DSMR spec is vague on details, but in 62056-21, the X's
-        // are a three-letter (registerd) manufacturer ID, the id
-        // string is up to 16 chars of arbitrary characters and the
-        // '5' is a baud rate indication. 5 apparently means 9600,
-        // which DSMR 3.x and below used. It seems that DSMR 2.x
-        // passed '3' here (which is mandatory for "mode D"
-        // communication according to 62956-21), so we also allow
-        // that. Apparently swedish meters use '9' for 115200. This code
-        // used to check the format of the line somewhat, but for
-        // flexibility (and since we do not actually parse the contents
-        // of the line anyway), just allow anything now.
-        //
-        // Offer it for processing using the all-ones Obis ID, which
-        // is not otherwise valid.
-        ParseResult<void> tmp = data.parse_line(ObisId(255, 255, 255, 255, 255, 255), line_start, line_end);
-        if (tmp.err)
-          return tmp;
-        line_start = ++line_end;
+    while (pos < input.size()) {
+      if (input[pos] == '\r' || input[pos] == '\n') {
+        auto res = data.parse_line(ObisId(255, 255, 255, 255, 255, 255), input.substr(line_start, pos - line_start));
+        if (!res)
+          return false;
+        line_start = ++pos;
         break;
       }
-      ++line_end;
+      ++pos;
     }
 
-    // Parse data lines
-    // We need to track brackets to handle cases like:
-    //   0-0:96.13.0(303132333435
-    //   30313233343)
-    // Also we need to handle cases like:
-    //   1-0:0.2.0((ER11))
-    bool open_bracket_found = false;
-    while (line_end < end) {
-      char c = *line_end;
-      char next_c = (line_end + 1 < end) ? *(line_end + 1) : '\0';
+    // Parse data lines — track brackets to handle multi-line values
+    // and double brackets like ((ER11))
+    bool open_bracket = false;
+    while (pos < input.size()) {
+      char c = input[pos];
+      char nc = (pos + 1 < input.size()) ? input[pos + 1] : '\0';
 
-      if ((c == '(' && next_c == '(') || (c == ')' && next_c == ')')) {
-        // we have a case like:
-        //   1-0:0.2.0((ER11))
-        // Treat double brackets as a single bracket for bracket tracking
-        line_end++;
-        c = next_c;
+      if ((c == '(' && nc == '(') || (c == ')' && nc == ')')) {
+        ++pos;
+        c = nc;
       }
 
       if (c == '(') {
-        if (open_bracket_found) {
-          return ParseResult<void>().fail("Unexpected '(' symbol", line_end);
+        if (open_bracket) {
+          Logger::log(LogLevel::ERROR, "Unexpected '(' symbol");
+          return false;
         }
-        open_bracket_found = true;
+        open_bracket = true;
       } else if (c == ')') {
-        if (!open_bracket_found) {
-          return ParseResult<void>().fail("Unexpected ')' symbol", line_end);
+        if (!open_bracket) {
+          Logger::log(LogLevel::ERROR, "Unexpected ')' symbol");
+          return false;
         }
-        open_bracket_found = false;
+        open_bracket = false;
       } else if (c == '\r' || c == '\n') {
-
-        // handles case like:
-        //  0-1:24.3.0(120517020000)(08)(60)(1)(0-1:24.2.1)(m3)
-        //  (00124.477)
-        const auto& next_part_of_the_data_line_on_next_line = (end - line_end > 2) && (line_end[1] == '(' || line_end[2] == '(');
-
-        const auto& break_in_the_middle_of_the_data_line = open_bracket_found || next_part_of_the_data_line_on_next_line;
-
-        if (!break_in_the_middle_of_the_data_line) {
-          // End of logical line -> parse it
-          ParseResult<void> tmp = parse_line(data, line_start, line_end, unknown_error);
-          if (tmp.err)
-            return tmp;
-
-          line_start = line_end + 1;
+        bool continuation = open_bracket || ((input.size() - pos > 2) && (input[pos + 1] == '(' || input[pos + 2] == '('));
+        if (!continuation) {
+          if (!parse_line(data, input.substr(line_start, pos - line_start), unknown_error))
+            return false;
+          line_start = pos + 1;
         }
       }
 
-      ++line_end;
+      ++pos;
     }
 
-    if (line_end != line_start)
-      return ParseResult<void>().fail("Last dataline not CRLF terminated", line_end);
+    if (pos != line_start) {
+      Logger::log(LogLevel::ERROR, "Last dataline not CRLF terminated");
+      return false;
+    }
 
-    return ParseResult<void>();
-  }
-
-  template <typename Data>
-  static ParseResult<void> parse_line(Data& data, const char* line, const char* end, bool unknown_error) {
-    ParseResult<void> res;
-    if (line == end)
-      return res;
-
-    ParseResult<ObisId> idres = ObisIdParser::parse(line, end);
-    if (idres.err)
-      return idres;
-
-    ParseResult<void> datares = data.parse_line(idres.result, idres.next, end);
-    if (datares.err)
-      return datares;
-
-    // If datares.next didn't move at all, there was no parser for
-    // this field, that's ok. But if it did move, but not all the way
-    // to the end, that's an error.
-    if (datares.next != idres.next && datares.next != end)
-      return res.fail("Trailing characters on data line", datares.next);
-    else if (datares.next == idres.next && unknown_error)
-      return res.fail("Unknown field", line);
-
-    return res.until(end);
+    return true;
   }
 };
 }

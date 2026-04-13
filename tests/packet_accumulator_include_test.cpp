@@ -3,4 +3,4 @@
 
 #include "dsmr_parser/packet_accumulator.h"
 
-void PacketAccumulator_some_function() { dsmr_parser::PacketAccumulator({}, true); }
+void PacketAccumulator_some_function() { dsmr_parser::PacketAccumulator(std::span<uint8_t>{}, true); }

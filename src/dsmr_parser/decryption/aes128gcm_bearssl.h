@@ -1,12 +1,20 @@
 #pragma once
-#include "aes128gcm.h"
-#include "util.h"
+
+#if __has_include(<bearssl/bearssl.h>)
+#include <bearssl/bearssl.h>
+#elif __has_include(<bearssl.h>)
 #include <bearssl.h>
+#else
+#error "BearSSL header not found"
+#endif
+
+#include "../util.h"
+#include "aes128gcm.h"
 #include <span>
 
 namespace dsmr_parser {
 
-class Aes128GcmBearSsl final : NonCopyableAndNonMovable {
+class Aes128GcmBearSsl final : public Aes128GcmDecryptor, NonCopyableAndNonMovable {
   br_gcm_context gcm;
   br_aes_ct_ctr_keys aes;
   bool initialized = false;
@@ -14,14 +22,14 @@ class Aes128GcmBearSsl final : NonCopyableAndNonMovable {
 public:
   Aes128GcmBearSsl() = default;
 
-  void set_encryption_key(const Aes128GcmEncryptionKey& key) {
+  void set_encryption_key(const Aes128GcmDecryptionKey& key) override {
     br_aes_ct_ctr_init(&aes, key.data(), 16);
     br_gcm_init(&gcm, &aes.vtable, br_ghash_ctmul32);
     initialized = true;
   }
 
-  bool decrypt_inplace(const std::array<const uint8_t, 17>& aad, const std::array<const uint8_t, 12>& nonce, std::span<uint8_t> ciphertext,
-                       const std::array<const uint8_t, 12>& tag) {
+  bool decrypt_inplace(std::span<const uint8_t, 17> aad, std::span<const uint8_t, 12> nonce, std::span<uint8_t> ciphertext,
+                       std::span<const uint8_t, 12> tag) override {
     if (!initialized) {
       return false;
     }

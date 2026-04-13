@@ -5,9 +5,10 @@ The primary goal is to make the parser independent of the Arduino framework and 
 * Combines all fixes from [matthijskooijman/arduino-dsmr](https://github.com/matthijskooijman/arduino-dsmr) and [glmnet/arduino-dsmr](https://github.com/glmnet/arduino-dsmr) including unmerged pull requests.
 * Added an extensive unit test suite
 * Code optimizations
+* No dynamic memory allocations
 * Supported compilers: MSVC, GCC, Clang
 * Header-only library, no dependencies
-* Code can be used on any platform, not only embedded.
+* Code can be used on any platform, not only embedded
 
 # Differences from the original arduino-dsmr
 * Requires a C++20 compatible compiler.
@@ -17,20 +18,19 @@ The primary goal is to make the parser independent of the Arduino framework and 
 # How to use
 ## General usage
 The library is header-only. Add the `src/dsmr_parser` folder to your project.<br>
-Note: [dlms_packet_decryptor.h](https://github.com/esphome-libs/dsmr_parser/blob/main/src/dsmr_parser/dlms_packet_decryptor.h) depends on [Mbed TLS](https://www.trustedfirmware.org/projects/mbed-tls/) or [BearSsl](https://bearssl.org/) library. `Mbed TLS` is already included in the `ESP-IDF` framework and can be easily added to any other platforms.
+Note: [dlms_packet_decryptor.h](https://github.com/esphome-libs/dsmr_parser/blob/main/src/dsmr_parser/dlms_packet_decryptor.h) requires one of the encryption libraries: [TF-PSA](https://github.com/Mbed-TLS/TF-PSA-Crypto), [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) or [BearSsl](https://bearssl.org/).
 
 ## Usage from PlatformIO
 The library is available on the PlatformIO registry:<br>
 [esphome/dsmr_parser](https://registry.platformio.org/libraries/esphome/dsmr_parser)
 
 # Examples
-* How to use the parser
-  * [minimal_parse.ino](https://github.com/matthijskooijman/arduino-dsmr/blob/master/examples/minimal_parse/minimal_parse.ino)
-  * [parse.ino](https://github.com/matthijskooijman/arduino-dsmr/blob/master/examples/parse/parse.ino)
 * Complete example using PacketAccumulator
   * [packet_accumulator_example_test.cpp](https://github.com/esphome-libs/dsmr_parser/blob/main/src/test/packet_accumulator_example_test.cpp)
 * Example using DlmsPacketDecryptor
   * [dlms_packet_decryptor_example_test.cpp](https://github.com/esphome-libs/dsmr_parser/blob/main/src/test/dlms_packet_decryptor_example_test.cpp)
+* Usage in EspHome project
+  * [DSMR component](https://github.com/esphome/esphome/tree/dev/esphome/components/dsmr)
 
 # History behind arduino-dsmr
 [matthijskooijman](https://github.com/matthijskooijman) is the original creator of this DSMR parser.

@@ -5,7 +5,7 @@ files:
   exclude:
     - "**/*"
   include:
-    - src/dsmr_parser/*.h
+    - src/dsmr_parser/**/*.h
     - LICENSE
     - README.md
     - CMakeLists.txt

@@ -1,21 +1,13 @@
 #include "dsmr_parser/fields.h"
 #include "dsmr_parser/parser.h"
+#include "test_util.h"
 #include <doctest.h>
 #include <iostream>
 
 using namespace dsmr_parser;
 using namespace fields;
 
-struct Printer {
-  template <typename Item>
-  void apply(Item& i) {
-    if (i.present()) {
-      std::cout << Item::name << ": " << i.val() << Item::unit() << std::endl;
-    }
-  }
-};
-
-TEST_CASE("Should parse all fields in the DSMR message correctly") {
+TEST_CASE_FIXTURE(LogFixture, "Should parse all fields in the DSMR message correctly") {
   const auto& msg = "/KFM5KAIFA-METER\r\n"
                     "\r\n"
                     "1-3:0.2.8(40)\r\n"
@@ -25,7 +17,14 @@ TEST_CASE("Should parse all fields in the DSMR message correctly") {
                     "1-0:1.8.2(000842.472*kWh)\r\n"
                     "1-0:2.8.1(000000.000*kWh)\r\n"
                     "1-0:2.8.2(000000.000*kWh)\r\n"
+                    "1-0:1.8.11(007132.419*kWh)\r\n"
+                    "1-0:1.8.12(000155.482*kWh)\r\n"
+                    "1-0:1.8.13(025605.254*kWh)\r\n"
+                    "1-0:2.8.11(000000.000*kWh)\r\n"
+                    "1-0:2.8.12(000000.000*kWh)\r\n"
+                    "1-0:2.8.13(000000.000*kWh)\r\n"
                     "0-0:96.14.0(0001)\r\n"
+                    "0-0:96.14.1(03)\r\n"
                     "1-0:1.7.0(00.333*kW)\r\n"
                     "1-0:2.7.0(00.000*kW)\r\n"
                     "0-0:17.0.0(999.9*kW)\r\n"
@@ -34,13 +33,23 @@ TEST_CASE("Should parse all fields in the DSMR message correctly") {
                     "0-0:96.7.9(00007)\r\n"
                     "1-0:99.97.0(1)(0-0:96.7.19)(000101000001W)(2147483647*s)\r\n"
                     "0-0:98.1.0(2)(1-0:1.6.0)(1-0:1.6.0)(230201000000W)(230117224500W)(04.329*kW)(230202000000W)(230214224500W)(04529*W)\r\n"
+                    "1-0:99.1.0(1)(0-0:96.10.7)(1-0:1.29.0)(1-0:2.29.0)(260411233000S)(00)(000000.205*kWh)(000000.000*kWh)\r\n"
                     "1-0:32.32.0(00000)\r\n"
                     "1-0:32.36.0(00000)\r\n"
                     "0-0:96.13.1()\r\n"
                     "0-0:96.13.0()\r\n"
+                    "1-0:32.7.0(234.0*V)\r\n"
+                    "1-0:52.7.0(231.0*V)\r\n"
+                    "1-0:72.7.0(231.0*V)\r\n"
                     "1-0:31.7.0(001*A)\r\n"
+                    "1-0:51.7.0(002.4*A)\r\n"
+                    "1-0:71.7.0(000.0*A)\r\n"
                     "1-0:21.7.0(00.332*kW)\r\n"
                     "1-0:22.7.0(00.000*kW)\r\n"
+                    "1-0:41.7.0(00.430*kW)\r\n"
+                    "1-0:42.7.0(00.000*kW)\r\n"
+                    "1-0:61.7.0(00.000*kW)\r\n"
+                    "1-0:62.7.0(00.000*kW)\r\n"
                     "0-1:24.1.0(003)\r\n"
                     "0-1:96.1.0(0000000000000000000000000000000000)\r\n"
                     "0-1:24.2.1(150117180000W)(00473.789*m3)\r\n"
@@ -56,7 +65,7 @@ TEST_CASE("Should parse all fields in the DSMR message correctly") {
                     "1-0:73.7.0(0.987)\r\n"
                     "1-0:13.3.0(0.000)\r\n"
                     "1-0:0.8.2(00900*s)\r\n"
-                    "!\r\n";
+                    "!";
 
   ParsedData<
       /* String */ identification,
@@ -67,7 +76,14 @@ TEST_CASE("Should parse all fields in the DSMR message correctly") {
       /* FixedValue */ energy_delivered_tariff2,
       /* FixedValue */ energy_returned_tariff1,
       /* FixedValue */ energy_returned_tariff2,
+      /* FixedValue */ energy_delivered_tariff1_il,
+      /* FixedValue */ energy_delivered_tariff2_il,
+      /* FixedValue */ energy_delivered_tariff3_il,
+      /* FixedValue */ energy_returned_tariff1_il,
+      /* FixedValue */ energy_returned_tariff2_il,
+      /* FixedValue */ energy_returned_tariff3_il,
       /* String */ electricity_tariff,
+      /* String */ electricity_tariff_il,
       /* FixedValue */ power_delivered,
       /* FixedValue */ power_returned,
       /* FixedValue */ electricity_threshold,
@@ -75,6 +91,7 @@ TEST_CASE("Should parse all fields in the DSMR message correctly") {
       /* uint32_t */ electricity_failures,
       /* uint32_t */ electricity_long_failures,
       /* String */ electricity_failure_log,
+      /* String */ electricity_failure_log_il,
       /* uint32_t */ electricity_sags_l1,
       /* uint32_t */ electricity_sags_l2,
       /* uint32_t */ electricity_sags_l3,
@@ -121,11 +138,8 @@ TEST_CASE("Should parse all fields in the DSMR message correctly") {
       /* FixedValue */ period_3_for_instantaneous_values>
       data;
 
-  auto res = P1Parser::parse(data, msg, std::size(msg), /* unknown_error */ true, /* check_crc */ false);
-  REQUIRE(res.err == nullptr);
-
-  // Print all values
-  data.applyEach(Printer());
+  auto res = DsmrParser::parse(data, DsmrUnencryptedTelegram(msg), /* unknown_error */ true);
+  REQUIRE(res);
 
   // Check that all fields have correct values
   REQUIRE(data.identification == "KFM5KAIFA-METER");
@@ -137,6 +151,13 @@ TEST_CASE("Should parse all fields in the DSMR message correctly") {
   REQUIRE(data.energy_returned_tariff1 == 0.0f);
   REQUIRE(data.energy_returned_tariff2 == 0.0f);
   REQUIRE(data.electricity_tariff == "0001");
+  REQUIRE(data.electricity_tariff_il == "03");
+  REQUIRE(data.energy_delivered_tariff1_il == 7132.419f);
+  REQUIRE(data.energy_delivered_tariff2_il == 155.482f);
+  REQUIRE(data.energy_delivered_tariff3_il == 25605.254f);
+  REQUIRE(data.energy_returned_tariff1_il == 0.0f);
+  REQUIRE(data.energy_returned_tariff2_il == 0.0f);
+  REQUIRE(data.energy_returned_tariff3_il == 0.0f);
   REQUIRE(data.power_delivered == 0.333f);
   REQUIRE(data.power_returned == 0.0f);
   REQUIRE(data.electricity_threshold == 999.9f);
@@ -144,13 +165,23 @@ TEST_CASE("Should parse all fields in the DSMR message correctly") {
   REQUIRE(data.electricity_failures == 8);
   REQUIRE(data.electricity_long_failures == 7);
   REQUIRE(data.electricity_failure_log == "(1)(0-0:96.7.19)(000101000001W)(2147483647*s)");
+  REQUIRE(data.electricity_failure_log_il == "(1)(0-0:96.10.7)(1-0:1.29.0)(1-0:2.29.0)(260411233000S)(00)(000000.205*kWh)(000000.000*kWh)");
   REQUIRE(data.electricity_sags_l1 == 0);
   REQUIRE(data.electricity_swells_l1 == 0);
   REQUIRE(data.message_short.empty());
   REQUIRE(data.message_long.empty());
+  REQUIRE(data.voltage_l1 == 234.0f);
+  REQUIRE(data.voltage_l2 == 231.0f);
+  REQUIRE(data.voltage_l3 == 231.0f);
   REQUIRE(data.current_l1 == 1.0f);
+  REQUIRE(data.current_l2 == 2.4f);
+  REQUIRE(data.current_l3 == 0.0f);
   REQUIRE(data.power_delivered_l1 == 0.332f);
+  REQUIRE(data.power_delivered_l2 == 0.430f);
+  REQUIRE(data.power_delivered_l3 == 0.0f);
   REQUIRE(data.power_returned_l1 == 0.0f);
+  REQUIRE(data.power_returned_l2 == 0.0f);
+  REQUIRE(data.power_returned_l3 == 0.0f);
   REQUIRE(data.gas_device_type == 3);
   REQUIRE(data.gas_equipment_id == "0000000000000000000000000000000000");
   REQUIRE(data.gas_valve_position == 1);
@@ -169,258 +200,221 @@ TEST_CASE("Should parse all fields in the DSMR message correctly") {
   REQUIRE(data.period_3_for_instantaneous_values == 900);
 }
 
-TEST_CASE("Should calculate CRC correctly") {
-  const auto& msg = "/KFM5KAIFA-METER\r\n"
-                    "\r\n"
-                    "1-0:1.8.1(000671.578*kWh)\r\n"
-                    "1-0:1.7.0(00.318*kW)\r\n"
-                    "!1e1D\r\n";
-
-  ParsedData<
-      /* String */ identification,
-      /* FixedValue */ power_delivered>
-      data;
-
-  auto res = P1Parser::parse(data, msg, std::size(msg), /* unknown_error */ false, /* check_crc */ true);
-  REQUIRE(res.err == nullptr);
-}
-
-TEST_CASE("Should report an error if the crc has incorrect format") {
-  const auto& msg = "/KFM5KAIFA-METER\r\n"
-                    "\r\n"
-                    "1-0:1.8.1(000671.578*kWh)\r\n"
-                    "1-0:1.7.0(00.318*kW)\r\n"
-                    "!1ED\r\n";
-
-  ParsedData<
-      /* String */ identification,
-      /* FixedValue */ power_delivered>
-      data;
-
-  auto res = P1Parser::parse(data, msg, std::size(msg), true);
-  REQUIRE(std::string(res.err) == "Incomplete or malformed checksum");
-}
-
-TEST_CASE("Should report an error if the crc of a package is incorrect") {
-  const auto& msg = "/KFM5KAIFA-METER\r\n"
-                    "\r\n"
-                    "1-0:.8.1(000671.578*kWh)\r\n"
-                    "1-0:1.7.0(00.318*kW)\r\n"
-                    "!1E1D\r\n";
-  ParsedData<
-      /* String */ identification,
-      /* FixedValue */ power_delivered>
-      data;
-
-  auto res = P1Parser::parse(data, msg, std::size(msg), true);
-  REQUIRE(std::string(res.err) == "Checksum mismatch");
-
-  const auto& fullError = res.fullError(msg, msg + std::size(msg));
-  REQUIRE(fullError == "!1E1D\r\n ^\r\nChecksum mismatch");
-}
-
-TEST_CASE("Should parse Wh-based integers for FixedField (fallback int_unit path)") {
+TEST_CASE_FIXTURE(LogFixture, "Should parse Wh-based integers for FixedField (fallback int_unit path)") {
   const auto& msg = "/ABC5MTR\r\n"
                     "\r\n"
                     "1-0:1.8.0(000441879*Wh)\r\n"
-                    "!\r\n";
+                    "!";
 
   ParsedData<
       /* String */ identification,
       /* FixedValue */ energy_delivered_lux>
       data;
 
-  const auto& res = P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/false, /*check_crc=*/false);
-  REQUIRE(res.err == nullptr);
+  const auto& res = DsmrParser::parse(data, DsmrUnencryptedTelegram(msg));
+  REQUIRE(res);
   REQUIRE(data.energy_delivered_lux == 441.879f); // 441,879 Wh => 441.879 kWh
   REQUIRE(fields::energy_delivered_lux::unit() == std::string("kWh"));
   REQUIRE(fields::energy_delivered_lux::int_unit() == std::string("Wh"));
 }
 
-TEST_CASE("Should parse TimestampedFixedField for gas_delivered_be and expose timestamp") {
+TEST_CASE_FIXTURE(LogFixture, "Should parse TimestampedFixedField for gas_delivered_be and expose timestamp") {
   const auto& msg = "/DEF5MTR\r\n"
                     "\r\n"
                     "0-1:24.2.3(230101120000W)(00012.345*m3)\r\n"
-                    "!\r\n";
+                    "!";
 
   ParsedData<
       /* String */ identification,
       /* TimestampedFixedValue */ gas_delivered_be>
       data;
 
-  const auto& res = P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/false, /*check_crc=*/false);
-  REQUIRE(res.err == nullptr);
+  const auto& res = DsmrParser::parse(data, DsmrUnencryptedTelegram(msg));
+  REQUIRE(res);
   REQUIRE(data.gas_delivered_be == 12.345f);
   REQUIRE(data.gas_delivered_be.timestamp == "230101120000W");
 }
 
-TEST_CASE("Should take the last value with LastFixedField (capacity rate history)") {
+TEST_CASE_FIXTURE(LogFixture, "Should take the last value with LastFixedField (capacity rate history)") {
   const auto& msg = "/KFM5MTR\r\n"
                     "\r\n"
                     "0-0:98.1.0(1)(1-0:1.6.0)(1-0:1.6.0)(230201000000W)(230117224500W)(04.329*kW)\r\n"
-                    "!\r\n";
+                    "!";
 
   ParsedData<
       /* String */ identification,
       /* FixedValue */ active_energy_import_maximum_demand_last_13_months>
       data;
 
-  P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/false, /*check_crc=*/false);
+  DsmrParser::parse(data, DsmrUnencryptedTelegram(msg));
   REQUIRE(data.active_energy_import_maximum_demand_last_13_months == 4.329f);
 }
 
-TEST_CASE("Should detect duplicate fields") {
+TEST_CASE_FIXTURE(LogFixture, "Should detect duplicate fields") {
   const auto& msg = "/AAA5MTR\r\n"
                     "\r\n"
                     "1-0:1.7.0(00.100*kW)\r\n"
                     "1-0:1.7.0(00.200*kW)\r\n"
-                    "!\r\n";
+                    "!";
 
   ParsedData<
       /* String */ identification,
       /* FixedValue */ power_delivered>
       data;
 
-  const auto& res = P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/false, /*check_crc=*/false);
-  REQUIRE(std::string(res.err) == "Duplicate field");
+  const auto& res = DsmrParser::parse(data, DsmrUnencryptedTelegram(msg));
+  REQUIRE_FALSE(res);
+  REQUIRE(log.contains("Duplicate field"));
+  REQUIRE(log.contains("(00.200*kW)"));
 }
 
-TEST_CASE("Should error on unknown field when unknown_error is true") {
+TEST_CASE_FIXTURE(LogFixture, "Should error on unknown field when unknown_error is true") {
   const auto& msg = "/AAA5MTR\r\n"
                     "\r\n"
                     "1-0:2.7.0(00.000*kW)\r\n" // power_returned not part of ParsedData below
-                    "!\r\n";
+                    "!";
 
   ParsedData<
       /* String */ identification>
       data;
 
-  const auto& res = P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/true, /*check_crc=*/false);
-  REQUIRE(std::string(res.err) == "Unknown field");
+  const auto& res = DsmrParser::parse(data, DsmrUnencryptedTelegram(msg), /*unknown_error=*/true);
+  REQUIRE_FALSE(res);
+  REQUIRE(log.contains("Unknown field"));
+  REQUIRE(log.contains("1-0:2.7.0(00.000*kW)"));
 }
 
-TEST_CASE("Should report OBIS ID numbers over 255") {
+TEST_CASE_FIXTURE(LogFixture, "Should report OBIS ID numbers over 255") {
   const auto& msg = "/AAA5MTR\r\n"
                     "\r\n"
                     "256-0:1.7.0(00.100*kW)\r\n" // invalid OBIS (256)
-                    "!\r\n";
+                    "!";
 
   ParsedData<
       /* String */ identification,
       /* FixedValue */ power_delivered>
       data;
 
-  const auto& res = P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/false, /*check_crc=*/false);
-  REQUIRE(std::string(res.err) == "Obis ID has number over 255");
+  const auto& res = DsmrParser::parse(data, DsmrUnencryptedTelegram(msg));
+  REQUIRE_FALSE(res);
+  REQUIRE(log.contains("Obis ID has number over 255"));
+  REQUIRE(log.contains("6-0:1.7.0(00.100*kW)"));
 }
 
-TEST_CASE("Should validate string length bounds (p1_version too short)") {
+TEST_CASE_FIXTURE(LogFixture, "Should validate string length bounds (p1_version too short)") {
   const auto& msg = "/AAA5MTR\r\n"
                     "\r\n"
                     "1-3:0.2.8(4)\r\n" // p1_version expects 2 chars
-                    "!\r\n";
+                    "!";
 
   ParsedData<
       /* String */ identification,
       /* String */ p1_version>
       data;
 
-  const auto& res = P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/false, /*check_crc=*/false);
-  REQUIRE(std::string(res.err) == "Invalid string length");
+  const auto& res = DsmrParser::parse(data, DsmrUnencryptedTelegram(msg));
+  REQUIRE_FALSE(res);
+  REQUIRE(log.contains("Invalid string length"));
+  REQUIRE(log.contains("4)"));
 }
 
-TEST_CASE("Should validate string length bounds (p1_version too long)") {
+TEST_CASE_FIXTURE(LogFixture, "Should validate string length bounds (p1_version too long)") {
   const auto& msg = "/AAA5MTR\r\n"
                     "\r\n"
                     "1-3:0.2.8(123)\r\n" // p1_version expects 2 chars
-                    "!\r\n";
+                    "!";
 
   ParsedData<
       /* String */ identification,
       /* String */ p1_version>
       data;
 
-  const auto& res = P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/false, /*check_crc=*/false);
-  REQUIRE(std::string(res.err) == "Invalid string length");
+  const auto& res = DsmrParser::parse(data, DsmrUnencryptedTelegram(msg));
+  REQUIRE_FALSE(res);
+  REQUIRE(log.contains("Invalid string length"));
+  REQUIRE(log.contains("123)"));
 }
 
-TEST_CASE("Should validate units for numeric fields") {
+TEST_CASE_FIXTURE(LogFixture, "Should validate units for numeric fields") {
   const auto& msg = "/AAA5MTR\r\n"
                     "\r\n"
                     "1-0:1.7.0(00.318*kVA)\r\n" // expects kW, not kVA
-                    "!\r\n";
+                    "!";
 
   ParsedData<
       /* String */ identification,
       /* FixedValue */ power_delivered>
       data;
 
-  const auto& res = P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/false, /*check_crc=*/false);
-  REQUIRE(std::string(res.err) == "Invalid unit");
+  const auto& res = DsmrParser::parse(data, DsmrUnencryptedTelegram(msg));
+  REQUIRE_FALSE(res);
+  REQUIRE(log.contains("Missing unit"));
+  REQUIRE(log.contains("kVA)"));
 }
 
-TEST_CASE("Should report missing closing parenthesis for StringField") {
+TEST_CASE_FIXTURE(LogFixture, "Should report missing closing parenthesis for StringField") {
   const auto& msg = "/AAA5MTR\r\n"
                     "\r\n"
                     "1-3:0.2.8(40\r\n" // missing ')'
-                    "!\r\n";
+                    "!";
 
   ParsedData<
       /* String */ identification,
       /* String */ p1_version>
       data;
 
-  const auto& res = P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/false, /*check_crc=*/false);
-  REQUIRE(std::string(res.err) == "Last dataline not CRLF terminated");
+  const auto& res = DsmrParser::parse(data, DsmrUnencryptedTelegram(msg));
+  REQUIRE_FALSE(res);
+  REQUIRE(log.contains("Last dataline not CRLF terminated"));
 }
 
-TEST_CASE("Should compute FixedField with decimals and millivolt int_unit correctly") {
+TEST_CASE_FIXTURE(LogFixture, "Should compute FixedField with decimals and millivolt int_unit correctly") {
   const auto& msg = "/AAA5MTR\r\n"
                     "\r\n"
                     "1-0:32.7.0(230.1*V)\r\n" // voltage_l1 (V / mV)
-                    "!\r\n";
+                    "!";
 
   ParsedData<
       /* String */ identification,
       /* FixedValue */ voltage_l1>
       data;
 
-  P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/false, /*check_crc=*/false);
+  DsmrParser::parse(data, DsmrUnencryptedTelegram(msg));
   REQUIRE(data.voltage_l1 == 230.1f);
 }
 
-TEST_CASE("all_present() should reflect presence of all requested fields") {
+TEST_CASE_FIXTURE(LogFixture, "all_present() should reflect presence of all requested fields") {
   SUBCASE("All fields present -> true") {
     const auto& msg = "/AAA5MTR\r\n"
                       "\r\n"
                       "1-0:1.7.0(00.123*kW)\r\n"
-                      "!\r\n";
+                      "!";
 
     ParsedData<
         /* String */ identification,
         /* FixedValue */ power_delivered>
         data;
 
-    P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/false, /*check_crc=*/false);
+    DsmrParser::parse(data, DsmrUnencryptedTelegram(msg));
     REQUIRE(data.all_present());
   }
 
   SUBCASE("Missing a requested field -> false") {
     const auto& msg = "/AAA5MTR\r\n"
                       "\r\n"
-                      "!\r\n";
+                      "!";
 
     ParsedData<
         /* String */ identification,
         /* FixedValue */ power_delivered>
         data;
 
-    P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/false, /*check_crc=*/false);
+    DsmrParser::parse(data, DsmrUnencryptedTelegram(msg));
     REQUIRE_FALSE(data.all_present());
   }
 }
 
-TEST_CASE("Should report last dataline not CRLF terminated") {
+TEST_CASE_FIXTURE(LogFixture, "Should report last dataline not CRLF terminated") {
   const auto& msg = "/AAA5MTR\r\n"
                     "\r\n"
                     "1-0:1.7.0(00.123*kW)" // no CRLF before '!'
@@ -431,41 +425,12 @@ TEST_CASE("Should report last dataline not CRLF terminated") {
       /* FixedValue */ power_delivered>
       data;
 
-  const auto& res = P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/false, /*check_crc=*/false);
-  REQUIRE(std::string(res.err) == "Last dataline not CRLF terminated");
+  const auto& res = DsmrParser::parse(data, DsmrUnencryptedTelegram(msg));
+  REQUIRE_FALSE(res);
+  REQUIRE(log.contains("Last dataline not CRLF terminated"));
 }
 
-TEST_CASE("Should report an error if checksum is not found") {
-  const auto& msg = "/AAA5MTR\r\n"
-                    "\r\n"
-                    "1-0:1.7.0(00.123*kW)"
-                    "!";
-
-  ParsedData<
-      /* String */ identification,
-      /* FixedValue */ power_delivered>
-      data;
-
-  const auto& res = P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/false, /*check_crc=*/true);
-  REQUIRE(std::string(res.err) == "No checksum found");
-}
-
-TEST_CASE("Doesn't crash for an empty packet") {
-  const auto& msg = "";
-
-  ParsedData<
-      /* String */ identification,
-      /* FixedValue */ power_delivered>
-      data;
-
-  auto res = P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/false, /*check_crc=*/true);
-  REQUIRE(std::string(res.err) == "Data should start with /");
-
-  res = P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/false, /*check_crc=*/false);
-  REQUIRE(std::string(res.err) == "Data should start with /");
-}
-
-TEST_CASE("Doesn't crash for a small packet") {
+TEST_CASE_FIXTURE(LogFixture, "Doesn't crash for a small packet") {
   const auto& msg = "/!";
 
   ParsedData<
@@ -473,14 +438,11 @@ TEST_CASE("Doesn't crash for a small packet") {
       /* FixedValue */ power_delivered>
       data;
 
-  auto res = P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/false, /*check_crc=*/true);
-  REQUIRE(std::string(res.err) == "No checksum found");
-
-  res = P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/false, /*check_crc=*/false);
-  REQUIRE(res.err == nullptr);
+  auto res = DsmrParser::parse(data, DsmrUnencryptedTelegram(msg));
+  REQUIRE(res);
 }
 
-TEST_CASE("Doesn't crash for a small packet 2") {
+TEST_CASE_FIXTURE(LogFixture, "Doesn't crash for a small packet 2") {
   const auto& msg = "/a!";
 
   ParsedData<
@@ -488,151 +450,134 @@ TEST_CASE("Doesn't crash for a small packet 2") {
       /* FixedValue */ power_delivered>
       data;
 
-  auto res = P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/false, /*check_crc=*/true);
-  REQUIRE(std::string(res.err) == "No checksum found");
-
-  res = P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/false, /*check_crc=*/false);
-  REQUIRE(std::string(res.err) == "Last dataline not CRLF terminated");
+  auto res = DsmrParser::parse(data, DsmrUnencryptedTelegram(msg));
+  REQUIRE_FALSE(res);
+  REQUIRE(log.contains("Last dataline not CRLF terminated"));
 }
 
-TEST_CASE("Doesn't crash for a partial checksum") {
-  const auto& msg = "/!A1";
-
-  ParsedData<
-      /* String */ identification,
-      /* FixedValue */ power_delivered>
-      data;
-
-  const auto& res = P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/false, /*check_crc=*/true);
-  REQUIRE(std::string(res.err) == "No checksum found");
-}
-
-TEST_CASE("Doesn't crash for a packet that doesn't end with '!' symbol") {
-  const auto& msg = "/AAA5MTR\r\n"
-                    "\r\n"
-                    "1-0:1.7.0(00.123*kW)";
-
-  ParsedData<
-      /* String */ identification,
-      /* FixedValue */ power_delivered>
-      data;
-
-  const auto& res = P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/false, /*check_crc=*/true);
-  REQUIRE(std::string(res.err) == "Data should end with !");
-}
-
-TEST_CASE("Trailing characters on data line") {
+TEST_CASE_FIXTURE(LogFixture, "Trailing characters on data line") {
   const auto& msg = "/AAA5MTR\r\n\r\n"
                     "1-0:1.7.0(00.123*kW) trailing\r\n"
-                    "!\r\n";
+                    "!";
   ParsedData</*String*/ identification, /*FixedValue*/ power_delivered> data;
-  const auto& res = P1Parser::parse(data, msg, std::size(msg), false, false);
-  REQUIRE(std::string(res.err) == "Trailing characters on data line");
+  const auto& res = DsmrParser::parse(data, DsmrUnencryptedTelegram(msg));
+  REQUIRE_FALSE(res);
+  REQUIRE(log.contains("Trailing characters on data line"));
+  REQUIRE(log.contains(" trailing"));
 }
 
-TEST_CASE("Unknown field ignored when unknown_error is false") {
+TEST_CASE_FIXTURE(LogFixture, "Unknown field ignored when unknown_error is false") {
   const auto& msg = "/AAA5MTR\r\n\r\n"
                     "1-0:2.7.0(00.000*kW)\r\n"
-                    "!\r\n";
+                    "!";
   ParsedData</*String*/ identification> data;
-  auto res = P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/false, /*check_crc=*/false);
-  REQUIRE(res.err == nullptr);
+  auto res = DsmrParser::parse(data, DsmrUnencryptedTelegram(msg));
+  REQUIRE(res);
 }
 
-TEST_CASE("Missing unit when required") {
+TEST_CASE_FIXTURE(LogFixture, "Missing unit when required") {
   const auto& msg = "/AAA5MTR\r\n\r\n"
                     "1-0:1.7.0(00.123)\r\n"
-                    "!\r\n";
+                    "!";
   ParsedData</*String*/ identification, /*FixedValue*/ power_delivered> data;
-  const auto& res = P1Parser::parse(data, msg, std::size(msg), false, false);
-  REQUIRE(std::string(res.err) == "Missing unit");
+  const auto& res = DsmrParser::parse(data, DsmrUnencryptedTelegram(msg));
+  REQUIRE_FALSE(res);
+  REQUIRE(log.contains("Missing unit"));
+  REQUIRE(log.contains(")"));
 }
 
-TEST_CASE("Unit present when not expected") {
+TEST_CASE_FIXTURE(LogFixture, "Unit present when not expected") {
   const auto& msg = "/AAA5MTR\r\n\r\n"
                     "0-0:96.7.21(00008*s)\r\n"
-                    "!\r\n";
+                    "!";
   ParsedData</*String*/ identification, /*uint32_t*/ electricity_failures> data;
-  const auto& res = P1Parser::parse(data, msg, std::size(msg), false, false);
-  REQUIRE(std::string(res.err) == "Extra data");
+  const auto& res = DsmrParser::parse(data, DsmrUnencryptedTelegram(msg));
+  REQUIRE_FALSE(res);
+  REQUIRE(log.contains("Extra data"));
+  REQUIRE(log.contains("*s)"));
 }
 
-TEST_CASE("Malformed packet that starts with ')'") {
+TEST_CASE_FIXTURE(LogFixture, "Malformed packet that starts with ')'") {
   const auto& msg = "/AAA5MTR\r\n"
                     "\r\n"
                     "1-3:0.2.8)40(\r\n"
-                    "!\r\n";
+                    "!";
 
   ParsedData<
       /* String */ identification,
       /* String */ p1_version>
       data;
 
-  const auto& res = P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/false, /*check_crc=*/false);
-  REQUIRE(std::string(res.err) == "Unexpected ')' symbol");
+  const auto& res = DsmrParser::parse(data, DsmrUnencryptedTelegram(msg));
+  REQUIRE_FALSE(res);
+  REQUIRE(log.contains("Unexpected ')' symbol"));
 }
 
-TEST_CASE("Non-digit in numeric part") {
+TEST_CASE_FIXTURE(LogFixture, "Non-digit in numeric part") {
   const auto& msg = "/AAA5MTR\r\n"
                     "\r\n"
                     "1-0:1.7.0(00.A23*kW)\r\n"
-                    "!\r\n";
+                    "!";
 
   ParsedData<
       /* String */ identification,
       /* FixedValue */ power_delivered>
       data;
 
-  const auto& res = P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/false, /*check_crc=*/false);
-  REQUIRE(std::string(res.err) == "Invalid number");
+  const auto& res = DsmrParser::parse(data, DsmrUnencryptedTelegram(msg));
+  REQUIRE_FALSE(res);
+  REQUIRE(log.contains("Missing unit"));
+  REQUIRE(log.contains("A23*kW)"));
 }
 
-TEST_CASE("OBIS id empty line") {
+TEST_CASE_FIXTURE(LogFixture, "OBIS id empty line") {
   const auto& msg = "/AAA5MTR\r\n"
                     "\r\n"
                     "garbage\r\n"
-                    "!\r\n";
+                    "!";
 
   ParsedData</*String*/ identification, /*FixedValue*/ power_delivered> data;
-  const auto& res = P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/false, /*check_crc=*/false);
-  REQUIRE(std::string(res.err) == "OBIS id Empty");
+  const auto& res = DsmrParser::parse(data, DsmrUnencryptedTelegram(msg));
+  REQUIRE_FALSE(res);
+  REQUIRE(log.contains("OBIS id Empty"));
+  REQUIRE(log.contains("garbage"));
 }
 
-TEST_CASE("Accepts LF-only line endings") {
+TEST_CASE_FIXTURE(LogFixture, "Accepts LF-only line endings") {
   const auto& msg = "/AAA5MTR\n"
                     "\n"
                     "1-0:1.7.0(00.123*kW)\n"
-                    "!\n";
+                    "!";
 
   ParsedData</*String*/ identification, /*FixedValue*/ power_delivered> data;
-  P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/false, /*check_crc=*/false);
+  DsmrParser::parse(data, DsmrUnencryptedTelegram(msg));
   REQUIRE(data.power_delivered == 0.123f);
 }
 
-TEST_CASE("Unit matching is case-insensitive") {
+TEST_CASE_FIXTURE(LogFixture, "Unit matching is case-insensitive") {
   const auto& msg = "/ABC5MTR\r\n"
                     "\r\n"
                     "1-0:1.8.1(000001.000*kwh)\r\n"
-                    "!\r\n";
+                    "!";
 
   ParsedData</*String*/ identification, /*FixedValue*/ energy_delivered_tariff1> data;
-  P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/false, /*check_crc=*/false);
+  DsmrParser::parse(data, DsmrUnencryptedTelegram(msg));
   REQUIRE(data.energy_delivered_tariff1 == 1.000f);
 }
 
-TEST_CASE("Numeric without decimals is accepted (auto-padded)") {
+TEST_CASE_FIXTURE(LogFixture, "Numeric without decimals is accepted (auto-padded)") {
   const auto& msg = "/AAA5MTR\r\n"
                     "\r\n"
                     "1-0:1.7.0(1*kW)\r\n"
                     "!";
 
   ParsedData</*String*/ identification, /*FixedValue*/ power_delivered> data;
-  const auto& res = P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/false, /*check_crc=*/false);
-  REQUIRE(res.err == nullptr);
+  const auto& res = DsmrParser::parse(data, DsmrUnencryptedTelegram(msg));
+  REQUIRE(res);
   REQUIRE(data.power_delivered == 1.0f);
 }
 
-TEST_CASE("Can parse a dataline if it has a break in the middle") {
+TEST_CASE_FIXTURE(LogFixture, "Can parse a dataline if it has a break in the middle") {
   const auto& msg = "/KMP5 ZABF000000000000\r\n"
                     "0-1:24.3.0(120517020000)(08)(60)(1)(0-1:24.2.1)(m3)\r\n"
                     "(00124.477)\r\n"
@@ -642,43 +587,45 @@ TEST_CASE("Can parse a dataline if it has a break in the middle") {
                     "!";
 
   ParsedData<identification, gas_delivered_text, message_long> data;
-  P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/false, /*check_crc=*/false);
+  DsmrParser::parse(data, DsmrUnencryptedTelegram(msg));
   REQUIRE(data.gas_delivered_text == "(120517020000)(08)(60)(1)(0-1:24.2.1)(m3)\r\n(00124.477)");
   REQUIRE(data.message_long == "303132333435363738393A3B3C3D3E3F303132333435363738393A3B3C3D3E3F\r\n303132333435363738393A3B3C3D3E3F30313233343536373"
                                "8393A3B3C3D3E3F\r\n303132333435363738393A3B3C3D3E3F");
 }
 
-TEST_CASE("Can parse a 0 value without a unit") {
+TEST_CASE_FIXTURE(LogFixture, "Can parse a 0 value without a unit") {
   const auto& msg = "/KMP5 ZABF000000000000\r\n"
                     "0-1:24.2.1(000101000000W)(00000000.0000)\r\n"
                     "!";
   ParsedData<gas_delivered> data;
-  const auto& res = P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/false, /*check_crc=*/false);
-  REQUIRE(res.err == nullptr);
+  const auto& res = DsmrParser::parse(data, DsmrUnencryptedTelegram(msg));
+  REQUIRE(res);
   REQUIRE(data.gas_delivered == 0.0f);
 }
 
-TEST_CASE("Whitespace after OBIS ID") {
+TEST_CASE_FIXTURE(LogFixture, "Whitespace after OBIS ID") {
   const auto& msg = "/KMP5 ZABF000000000000\r\n"
                     "0-1:24.2.1 (000101000000W)(00000000.0000)\r\n"
                     "!";
   ParsedData<gas_delivered> data;
-  const auto& res = P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/ true, /*check_crc=*/false);
-  REQUIRE(std::string(res.err) == "Missing (");
+  const auto& res = DsmrParser::parse(data, DsmrUnencryptedTelegram(msg), /*unknown_error=*/true);
+  REQUIRE_FALSE(res);
+  REQUIRE(log.contains("Missing ("));
+  REQUIRE(log.contains(" (000101000000W)(00000000.0000)"));
 }
 
-TEST_CASE("Use integer fallback unit") {
+TEST_CASE_FIXTURE(LogFixture, "Use integer fallback unit") {
   const auto& msg = "/KMP5 ZABF000000000000\r\n"
                     "0-1:24.2.1(230101120000W)(00012*dm3)\r\n"
                     "1-0:14.7.0(50*Hz)\r\n"
                     "!";
   ParsedData<gas_delivered, frequency> data;
-  P1Parser::parse(data, msg, std::size(msg), /*unknown_error=*/ true, /*check_crc=*/false);
+  DsmrParser::parse(data, DsmrUnencryptedTelegram(msg), /*unknown_error=*/true);
   REQUIRE(data.gas_delivered == 0.012f);
   REQUIRE(data.frequency == 0.05f);
 }
 
-TEST_CASE("AveragedFixedField works properly for a long array") {
+TEST_CASE_FIXTURE(LogFixture, "AveragedFixedField works properly for a long array") {
   const auto& msg = "/KMP5 ZABF000000000000\r\n"
                     "0-0:98.1.0(11)(1-0:1.6.0)(1-0:1.6.0)(230101000000W)(221206183000W)(06.134*kW)(230201000000W)(230127174500W)(05.644*kW)(230301000000W)("
                     "230226063000W)(04.895*kW)(230401000000S)(230305181500W)(04.879*kW)(230501000000S)(230416094500S)(04.395*kW)(230601000000S)(230522084500S)("
@@ -687,32 +634,96 @@ TEST_CASE("AveragedFixedField works properly for a long array") {
                     "!";
 
   ParsedData<active_energy_import_maximum_demand_last_13_months> data;
-  P1Parser::parse(data, msg, std::size(msg), /* unknown_error */ true, /* check_crc */ false);
+  DsmrParser::parse(data, DsmrUnencryptedTelegram(msg), /* unknown_error */ true);
 
   REQUIRE(data.active_energy_import_maximum_demand_last_13_months.val() == 3.642f);
 }
 
-TEST_CASE("AveragedFixedField works properly for an empty array") {
+TEST_CASE_FIXTURE(LogFixture, "AveragedFixedField works properly for an empty array") {
   const auto& msg = "/KMP5 ZABF000000000000\r\n"
                     "0-0:98.1.0(0)(garbage that will be skipped)\r\n"
                     "1-0:1.8.1(000001.000*kwh)\r\n"
                     "!";
 
   ParsedData<active_energy_import_maximum_demand_last_13_months, energy_delivered_tariff1> data;
-  P1Parser::parse(data, msg, std::size(msg), /* unknown_error */ true, /* check_crc */ false);
+  DsmrParser::parse(data, DsmrUnencryptedTelegram(msg), /* unknown_error */ true);
 
   REQUIRE(data.active_energy_import_maximum_demand_last_13_months.val() == 0.0f);
   REQUIRE(data.energy_delivered_tariff1.val() == 1.0f);
 }
 
-TEST_CASE("Should parse gas_delivered_gj field") {
+TEST_CASE_FIXTURE(LogFixture, "Should parse gas_delivered_gj field") {
   const auto& msg = "/identification\r\n"
                     "0-1:24.2.1(251129203200W)(3.829*GJ)\r\n"
                     "!";
 
   ParsedData<gas_delivered_gj> data;
 
-  const auto& res = P1Parser::parse(data, msg, std::size(msg), /* unknown_error */ true, /* check_crc */ false);
-  REQUIRE(res.err == nullptr);
+  const auto& res = DsmrParser::parse(data, DsmrUnencryptedTelegram(msg), /* unknown_error */ true);
+  REQUIRE(res);
   REQUIRE(data.gas_delivered_gj == 3.829f);
+}
+
+TEST_CASE_FIXTURE(LogFixture, "Missing opening parenthesis for numeric field") {
+  const auto& msg = "/AAA5MTR\r\n"
+                    "\r\n"
+                    "1-0:1.7.0\r\n"
+                    "!";
+
+  ParsedData</*String*/ identification, /*FixedValue*/ power_delivered> data;
+  const auto& res = DsmrParser::parse(data, DsmrUnencryptedTelegram(msg));
+  REQUIRE_FALSE(res);
+  REQUIRE(log.contains("Missing ( ''"));
+}
+
+TEST_CASE_FIXTURE(LogFixture, "Non-digit in integer part of numeric field") {
+  const auto& msg = "/AAA5MTR\r\n"
+                    "\r\n"
+                    "1-0:1.7.0(A0.123*kW)\r\n"
+                    "!";
+
+  ParsedData</*String*/ identification, /*FixedValue*/ power_delivered> data;
+  const auto& res = DsmrParser::parse(data, DsmrUnencryptedTelegram(msg));
+  REQUIRE_FALSE(res);
+  REQUIRE(log.contains("Invalid number"));
+  REQUIRE(log.contains("A0.123*kW)"));
+}
+
+TEST_CASE_FIXTURE(LogFixture, "Unit too short for numeric field") {
+  const auto& msg = "/AAA5MTR\r\n"
+                    "\r\n"
+                    "1-0:1.8.1(000001.000*kW)\r\n"
+                    "!";
+
+  ParsedData</*String*/ identification, /*FixedValue*/ energy_delivered_tariff1> data;
+  const auto& res = DsmrParser::parse(data, DsmrUnencryptedTelegram(msg));
+  REQUIRE_FALSE(res);
+  REQUIRE(log.contains("Missing unit"));
+  REQUIRE(log.contains("kW)"));
+}
+
+TEST_CASE_FIXTURE(LogFixture, "Nested opening parenthesis") {
+  const auto& msg = "/AAA5MTR\r\n"
+                    "\r\n"
+                    "1-0:1.7.0(0(0.123*kW))\r\n"
+                    "!";
+
+  ParsedData</*String*/ identification, /*FixedValue*/ power_delivered> data;
+  const auto& res = DsmrParser::parse(data, DsmrUnencryptedTelegram(msg));
+  REQUIRE_FALSE(res);
+  REQUIRE(log.contains("Unexpected '(' symbol"));
+}
+
+TEST_CASE_FIXTURE(LogFixture, "ParsedData without any fields") {
+  const auto& msg = "/AAA5MTR\r\n"
+                    "\r\n"
+                    "1-0:1.8.1(000671.578*kWh)\r\n"
+                    "1-0:1.8.2(000842.472*kWh)\r\n"
+                    "1-0:2.8.1(000000.000*kWh)\r\n"
+                    "!";
+
+  ParsedData<> data;
+  const auto& res = DsmrParser::parse(data, DsmrUnencryptedTelegram(msg));
+  REQUIRE(res);
+  REQUIRE(data.all_present());
 }

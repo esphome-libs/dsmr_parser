@@ -1,8 +1,10 @@
 #pragma once
-#include "aes128gcm.h"
+#include "decryption/aes128gcm.h"
+#include "packet_accumulator.h"
 #include "util.h"
 #include <array>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <string_view>
 #include <vector>
@@ -11,13 +13,12 @@ namespace dsmr_parser {
 
 // Decrypts DLMS packets encrypted with AES-128-GCM.
 // The encryption is described in the "specs/Luxembourg Smarty P1 specification v1.1.3.pdf" chapter "3.2.5 P1 software – Channel security".
-template <typename Aes128Gcm>
-class DlmsPacketDecryptor final {
+class DlmsPacketDecryptor final : NonCopyableAndNonMovable {
 
 #pragma pack(push, 1)
   // The packet has the following structure:
   //   Header (18 bytes) | Encrypted Telegram | GCM Tag (12 bytes)
-  struct DlmsPacket final {
+  struct DlmsPacket final : NonCopyableAndNonMovable {
   private:
     struct {
       uint8_t tag;                              // always = 0xDB
@@ -33,15 +34,26 @@ class DlmsPacketDecryptor final {
   public:
     static DlmsPacket* from_bytes(const std::span<uint8_t> bytes) {
       if (bytes.size() < sizeof(header) + /* tag length */ 12) {
+        Logger::log(LogLevel::DEBUG, "DLMS packet is too short. Size: %zu", bytes.size());
         return nullptr;
       }
 
       auto& packet = *reinterpret_cast<DlmsPacket*>(bytes.data());
+      const auto expected_length = sizeof(header) + /* tag length */ 12 + packet.telegram_length();
+      if (expected_length != bytes.size()) {
+        Logger::log(LogLevel::DEBUG, "DLMS packet length mismatch. Expected: %zu, actual: %zu", expected_length, bytes.size());
+        return nullptr;
+      }
 
-      const auto& length_correct = bytes.size() == sizeof(header) + /* tag length */ 12 + packet.telegram_length();
-      const auto& header_bytes_consistent = packet.header.tag == 0xDB && packet.header.system_title_length == 0x08 &&
-                                            packet.header.long_form_length_indicator == 0x82 && packet.header.security_control_field == 0x30;
-      if (!length_correct || !header_bytes_consistent) {
+      if (packet.telegram_length() < 10) {
+        Logger::log(LogLevel::DEBUG, "DLMS encrypted telegram is too short. Size: %zu", packet.telegram_length());
+        return nullptr;
+      }
+
+      const auto header_bytes_consistent = packet.header.tag == 0xDB && packet.header.system_title_length == 0x08 &&
+                                           packet.header.long_form_length_indicator == 0x82 && packet.header.security_control_field == 0x30;
+      if (!header_bytes_consistent) {
+        Logger::log(LogLevel::DEBUG, "DLMS packet header is corrupted");
         return nullptr;
       }
 
@@ -49,7 +61,7 @@ class DlmsPacketDecryptor final {
     }
 
     // Also called "IV"
-    std::array<const uint8_t, 12> nonce() const {
+    std::array<uint8_t, 12> nonce() const {
       // nonce = SystemTitle (8 bytes) + InvocationCounter (4 bytes)
       const auto& st = header.system_title;
       const auto& ic = header.invocation_counter_big_endian;
@@ -57,10 +69,8 @@ class DlmsPacketDecryptor final {
     }
 
     std::span<uint8_t> encrypted_telegram() { return {encrypted_telegram_with_gcm_tag, telegram_length()}; }
-    std::array<const uint8_t, 12> gcm_tag() const {
-      const uint8_t* p = encrypted_telegram_with_gcm_tag + telegram_length();
-      return {p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10], p[11]};
-    }
+
+    std::span<const uint8_t, 12> gcm_tag() const { return std::span<const uint8_t, 12>{encrypted_telegram_with_gcm_tag + telegram_length(), 12}; }
 
   private:
     // encrypted and decrypted telegrams have the same length
@@ -73,28 +83,63 @@ class DlmsPacketDecryptor final {
 #pragma pack(pop)
   static_assert(sizeof(DlmsPacket) == 19, "EncryptedPacket struct must be 19 bytes");
 
-  Aes128Gcm decryptor;
+  Aes128GcmDecryptor& decryptor;
+
+  static void log_span_as_hex(const LogLevel level, const std::span<const uint8_t> data) {
+    constexpr size_t kCharsPerChunk = 200;
+    constexpr size_t kBytesPerChunk = kCharsPerChunk / 2;
+    for (size_t i = 0; i < data.size(); i += kBytesPerChunk) {
+      char hex[kCharsPerChunk + 1];
+      const size_t n = std::min(kBytesPerChunk, data.size() - i);
+      for (size_t j = 0; j < n; ++j) {
+        constexpr char kHex[] = "0123456789ABCDEF";
+        hex[j * 2] = kHex[data[i + j] >> 4];
+        hex[j * 2 + 1] = kHex[data[i + j] & 0x0F];
+      }
+      hex[n * 2] = '\0';
+      Logger::log(level, "%s", hex);
+    }
+  }
 
 public:
-  void set_encryption_key(const Aes128GcmEncryptionKey& key) { decryptor.set_encryption_key(key); }
+  explicit DlmsPacketDecryptor(Aes128GcmDecryptor& dec) : decryptor(dec) {}
 
-  std::optional<std::string_view> decrypt_inplace(std::span<uint8_t> dlms_packet_bytes) {
+  std::optional<DsmrUnencryptedTelegram> decrypt_inplace(std::span<uint8_t> dlms_packet_bytes) {
+    Logger::log(LogLevel::VERY_VERBOSE, "Decrypt DLMS packet:");
+    log_span_as_hex(LogLevel::VERY_VERBOSE, dlms_packet_bytes);
+    Logger::log(LogLevel::VERY_VERBOSE, "=========");
+
     auto dlms_packet = DlmsPacket::from_bytes(dlms_packet_bytes);
     if (dlms_packet == nullptr) {
-      return {};
+      return std::nullopt;
     }
 
     // aad = AdditionalAuthenticatedData = SecurityControlField + AuthenticationKey.
     //   SecurityControlField is always 0x30.
     //   AuthenticationKey = "00112233445566778899AABBCCDDEEFF". It is hardcoded and is the same for all DSMR devices.
-    constexpr std::array<const uint8_t, 17> aad{0x30, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF};
-
+    constexpr std::array<uint8_t, 17> aad{0x30, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF};
     const bool res = decryptor.decrypt_inplace(aad, dlms_packet->nonce(), dlms_packet->encrypted_telegram(), dlms_packet->gcm_tag());
     if (!res) {
-      return {};
+      Logger::log(LogLevel::DEBUG, "Decryption of DLMS packet failed");
+      return std::nullopt;
     }
 
-    return std::string_view{reinterpret_cast<const char*>(dlms_packet->encrypted_telegram().data()), dlms_packet->encrypted_telegram().size()};
+    // The unencrypted DSMR telegram looks like "/data!abcd\r\n". We skip everything after the "!" sign. The encryption already handles integrity check.
+    const auto telegram = std::string_view{reinterpret_cast<const char*>(dlms_packet->encrypted_telegram().data()), dlms_packet->encrypted_telegram().size()};
+    if (telegram.front() != '/') {
+      Logger::log(LogLevel::DEBUG, "Unencrypted DSMR telegram should start with '/' character");
+      return std::nullopt;
+    }
+    const auto bangPos = std::ranges::find(telegram, '!');
+    if (bangPos == telegram.end()) {
+      Logger::log(LogLevel::DEBUG, "Unencrypted DSMR telegram should contain '!' character");
+      return std::nullopt;
+    }
+    const auto dsmrUnencryptedTelegram = std::string_view{telegram.begin(), bangPos + 1};
+
+    Logger::log(LogLevel::VERBOSE, "DLMS packet decryption succeeded");
+
+    return DsmrUnencryptedTelegram(dsmrUnencryptedTelegram);
   }
 };
 

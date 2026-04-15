@@ -2,6 +2,8 @@
 
 #include "parser.h"
 #include "util.h"
+#include <optional>
+#include <string_view>
 
 #ifndef DSMR_GAS_MBUS_ID
 #define DSMR_GAS_MBUS_ID 1
@@ -18,23 +20,22 @@
 
 namespace dsmr_parser {
 
-// Superclass for data items in a P1 message.
 template <typename T>
 struct ParsedField {
   template <typename F>
   void apply(F& f) {
     f.apply(*static_cast<T*>(this));
   }
-  // By defaults, fields have no unit
   static const char* unit() noexcept { return ""; }
 };
 
 template <typename T, size_t minlen, size_t maxlen>
 struct StringField : ParsedField<T> {
-  ParseResult<void> parse(const char* str, const char* end) {
-    ParseResult<std::string> res = StringParser::parse_string(minlen, maxlen, str, end);
-    if (!res.err)
-      static_cast<T*>(this)->val() = res.result;
+  std::optional<std::string_view> parse(std::string_view input) {
+    std::string_view sv;
+    auto res = parse_string(sv, minlen, maxlen, input);
+    if (res)
+      static_cast<T*>(this)->val() = sv;
     return res;
   }
 };
@@ -70,13 +71,14 @@ struct FixedValue {
 // integer unit is passed as a template argument.
 template <typename T, const char* _unit, const char* _int_unit>
 struct FixedField : ParsedField<T> {
-  ParseResult<void> parse(const char* str, const char* end) {
+  std::optional<std::string_view> parse(std::string_view input) {
     // Some smart meters publish int values instead of a float.
     // E.g. most meters would publish "1-0:1.8.0(000441.879*kWh)",
     // but some use "1-0:1.8.0(000441879*Wh)" instead.
-    auto res = NumParser::parse_float_or_int(3, _unit, _int_unit, str, end);
-    if (!res.err)
-      static_cast<T*>(this)->val()._value = res.result;
+    int32_t val;
+    auto res = parse_float_or_int(val, 3, _unit, _int_unit, input);
+    if (res)
+      static_cast<T*>(this)->val()._value = val;
     return res;
   }
 
@@ -85,60 +87,51 @@ struct FixedField : ParsedField<T> {
 };
 
 struct TimestampedFixedValue : public FixedValue {
-  std::string timestamp;
+  std::string_view timestamp;
 };
 
 // Some numerical values are prefixed with a timestamp. This is simply
 // both of them concatenated, e.g. 0-1:24.2.1(150117180000W)(00473.789*m3)
 template <typename T, const char* _unit, const char* _int_unit>
 struct TimestampedFixedField : public FixedField<T, _unit, _int_unit> {
-  ParseResult<void> parse(const char* str, const char* end) {
-    // First, parse timestamp
-    ParseResult<std::string> res = StringParser::parse_string(13, 13, str, end);
-    if (res.err)
-      return res;
-
-    static_cast<T*>(this)->val().timestamp = res.result;
-
-    // Which is immediately followed by the numerical value
-    return FixedField<T, _unit, _int_unit>::parse(res.next, end);
+  std::optional<std::string_view> parse(std::string_view input) {
+    std::string_view ts;
+    auto res = parse_string(ts, 13, 13, input);
+    if (!res)
+      return std::nullopt;
+    static_cast<T*>(this)->val().timestamp = ts;
+    return FixedField<T, _unit, _int_unit>::parse(*res);
   }
 };
 
-// Take the last value of multiple values
+// Take the last value of multiple parenthesized values
 // e.g. 0-0:98.1.0(1)(1-0:1.6.0)(1-0:1.6.0)(230201000000W)(230117224500W)(04.329*kW)
 template <typename T, const char* _unit, const char* _int_unit>
 struct LastFixedField : public FixedField<T, _unit, _int_unit> {
-  ParseResult<void> parse(const char* str, const char* end) {
-    // we parse last entry 2 times
-    const char* last = end;
-
-    ParseResult<std::string> res;
-    res.next = str;
-
-    while (res.next != end) {
-      last = res.next;
-      res = StringParser::parse_string(1, 20, res.next, end);
-      if (res.err)
-        return res;
+  std::optional<std::string_view> parse(std::string_view input) {
+    std::string_view last = input;
+    std::string_view remaining = input;
+    while (!remaining.empty()) {
+      last = remaining;
+      std::string_view sv;
+      auto res = parse_string(sv, 1, 20, remaining);
+      if (!res)
+        return std::nullopt;
+      remaining = *res;
     }
-
-    // (04.329*kW) Which is followed by the numerical value
-    return FixedField<T, _unit, _int_unit>::parse(last, end);
+    return FixedField<T, _unit, _int_unit>::parse(last);
   }
 };
 
 // A integer number is just represented as an integer.
 template <typename T, const char* _unit>
 struct IntField : ParsedField<T> {
-  ParseResult<void> parse(const char* str, const char* end) {
-    ParseResult<int32_t> res = NumParser::parse(0, _unit, str, end);
-    if (!res.err) {
+  std::optional<std::string_view> parse(std::string_view input) {
+    int32_t val;
+    auto res = parse_num(val, 0, _unit, input);
+    if (res) {
       auto& dst = static_cast<T*>(this)->val();
-      using Dst = std::remove_reference_t<decltype(dst)>;
-
-      // Narrow conversion. It is possible to loose data here
-      dst = static_cast<Dst>(res.result);
+      dst = static_cast<std::remove_reference_t<decltype(dst)>>(val);
     }
     return res;
   }
@@ -146,71 +139,56 @@ struct IntField : ParsedField<T> {
   static const char* unit() noexcept { return _unit; }
 };
 
-// Take the average value of multiple values. Example:
+// Take the average of multiple timestamped values. Example:
 //   0-0:98.1.0(2)(1-0:1.6.0)(1-0:1.6.0)(230201000000W)(230117224500W)(04.329*kW)(230202000000W)(230214224500W)(04.529*kW)
 // Will produce an average between 4.329 and 4.529
 template <typename T, const char* _unit, const char* _int_unit>
 struct AveragedFixedField : public FixedField<T, _unit, _int_unit> {
-  ParseResult<void> parse(const char* str, const char* end) {
-    // get the number of values that are available in the data
-    auto numberOfValues = NumParser::parse(0, "", str, end);
-    if (numberOfValues.err) {
-      return numberOfValues;
-    }
+  std::optional<std::string_view> parse(std::string_view input) {
+    int32_t count;
+    auto res = parse_num(count, 0, "", input);
+    if (!res)
+      return std::nullopt;
 
-    if (numberOfValues.result == 0) {
-      numberOfValues.next = end; // mark that we consumed all input
+    if (count == 0) {
       static_cast<T*>(this)->val()._value = 0;
-      return numberOfValues;
+      return std::string_view{};
     }
 
-    // Skip (1-0:1.6.0)
-    auto res = StringParser::parse_string(1, 20, numberOfValues.next, end);
-    if (res.err)
-      return res;
+    std::string_view sv;
+    res = parse_string(sv, 1, 20, *res);
+    if (!res)
+      return std::nullopt;
+    res = parse_string(sv, 1, 20, *res);
+    if (!res)
+      return std::nullopt;
 
-    // Skip another (1-0:1.6.0)
-    res = StringParser::parse_string(1, 20, res.next, end);
-    if (res.err)
-      return res;
-
-    ParseResult<int32_t> average;
-    average.succeed(0);
-    average.next = res.next;
-    for (int32_t i = 0; i < numberOfValues.result; i++) {
-      // skip date (230201000000W)
-      res = StringParser::parse_string(1, 20, average.next, end);
-      if (res.err)
-        return res;
-
-      // skip second date (230117224500W)
-      res = StringParser::parse_string(1, 20, res.next, end);
-      if (res.err)
-        return res;
-
-      // parse value (04.329*kW) or (04329*W)
-      auto monthValue = NumParser::parse_float_or_int(3, _unit, _int_unit, res.next, end);
-      if (monthValue.err)
-        return monthValue;
-
-      average.next = monthValue.next;
-      average.result += monthValue.result;
+    int32_t total = 0;
+    for (int32_t i = 0; i < count; i++) {
+      res = parse_string(sv, 1, 20, *res);
+      if (!res)
+        return std::nullopt;
+      res = parse_string(sv, 1, 20, *res);
+      if (!res)
+        return std::nullopt;
+      int32_t val;
+      res = parse_float_or_int(val, 3, _unit, _int_unit, *res);
+      if (!res)
+        return std::nullopt;
+      total += val;
     }
 
-    average.result /= numberOfValues.result;
-    static_cast<T*>(this)->val()._value = average.result;
-
-    return average;
+    static_cast<T*>(this)->val()._value = total / count;
+    return res;
   }
 };
 
-// A RawField is not parsed, the entire value (including any parenthesis around it) is returned as a string.
+// Raw field — no parsing, just store the entire value, including any parenthesis around it, as a string_view
 template <typename T>
 struct RawField : ParsedField<T> {
-  ParseResult<void> parse(const char* str, const char* end) {
-    // Just copy the string verbatim value without any parsing
-    static_cast<T*>(this)->val().append(str, static_cast<size_t>(end - str));
-    return ParseResult<void>().until(end);
+  std::optional<std::string_view> parse(std::string_view input) {
+    static_cast<T*>(this)->val() = input;
+    return std::string_view{};
   }
 };
 
@@ -242,11 +220,6 @@ struct units final {
   static inline constexpr char kHz[] = "kHz";
 };
 
-const uint8_t GAS_MBUS_ID = DSMR_GAS_MBUS_ID;
-const uint8_t WATER_MBUS_ID = DSMR_WATER_MBUS_ID;
-const uint8_t THERMAL_MBUS_ID = DSMR_THERMAL_MBUS_ID;
-const uint8_t SUB_MBUS_ID = DSMR_SUB_MBUS_ID;
-
 #define DEFINE_FIELD(fieldname, value_t, obis, field_t, ...)        \
   struct fieldname : field_t<fieldname __VA_OPT__(, __VA_ARGS__)> { \
     value_t fieldname;                                              \
@@ -258,17 +231,17 @@ const uint8_t SUB_MBUS_ID = DSMR_SUB_MBUS_ID;
   }
 
 // Meter identification. This is not a normal field, but a specially-formatted first line of the message
-DEFINE_FIELD(identification, std::string, ObisId(255, 255, 255, 255, 255, 255), RawField);
+DEFINE_FIELD(identification, std::string_view, ObisId(255, 255, 255, 255, 255, 255), RawField);
 
 // Version information for P1 output
-DEFINE_FIELD(p1_version, std::string, ObisId(1, 3, 0, 2, 8), StringField, 2, 2);
-DEFINE_FIELD(p1_version_be, std::string, ObisId(0, 0, 96, 1, 4), StringField, 2, 96);
+DEFINE_FIELD(p1_version, std::string_view, ObisId(1, 3, 0, 2, 8), StringField, 2, 2);
+DEFINE_FIELD(p1_version_be, std::string_view, ObisId(0, 0, 96, 1, 4), StringField, 2, 96);
 
 // Date-time stamp of the P1 message
-DEFINE_FIELD(timestamp, std::string, ObisId(0, 0, 1, 0, 0), TimestampField);
+DEFINE_FIELD(timestamp, std::string_view, ObisId(0, 0, 1, 0, 0), TimestampField);
 
 // Equipment identifier
-DEFINE_FIELD(equipment_id, std::string, ObisId(0, 0, 96, 1, 1), StringField, 0, 96);
+DEFINE_FIELD(equipment_id, std::string_view, ObisId(0, 0, 96, 1, 1), StringField, 0, 96);
 
 // Meter Reading electricity delivered to client (Special for Lux) in 0,001 kWh
 // TODO: by OBIS 1-0:1.8.0.255 IEC 62056 it should be Positive active energy (A+) total [kWh], should we rename it?
@@ -324,10 +297,28 @@ DEFINE_FIELD(energy_returned_tariff1_ch, FixedValue, ObisId(1, 1, 2, 8, 1), Fixe
 // Meter Reading electricity delivered by client (Tariff 2) in 0,001 kWh
 DEFINE_FIELD(energy_returned_tariff2_ch, FixedValue, ObisId(1, 1, 2, 8, 2), FixedField, units::kWh, units::Wh);
 
+// Specific fields used for Israel
+// Meter Reading electricity delivered to client (Tariff 1) in 0,001 kWh
+DEFINE_FIELD(energy_delivered_tariff1_il, FixedValue, ObisId(1, 0, 1, 8, 11), FixedField, units::kWh, units::Wh);
+// Meter Reading electricity delivered to client (Tariff 2) in 0,001 kWh
+DEFINE_FIELD(energy_delivered_tariff2_il, FixedValue, ObisId(1, 0, 1, 8, 12), FixedField, units::kWh, units::Wh);
+// Meter Reading electricity delivered to client (Tariff 3) in 0,001 kWh
+DEFINE_FIELD(energy_delivered_tariff3_il, FixedValue, ObisId(1, 0, 1, 8, 13), FixedField, units::kWh, units::Wh);
+// Meter Reading electricity delivered by client (Tariff 1) in 0,001 kWh
+DEFINE_FIELD(energy_returned_tariff1_il, FixedValue, ObisId(1, 0, 2, 8, 11), FixedField, units::kWh, units::Wh);
+// Meter Reading electricity delivered by client (Tariff 2) in 0,001 kWh
+DEFINE_FIELD(energy_returned_tariff2_il, FixedValue, ObisId(1, 0, 2, 8, 12), FixedField, units::kWh, units::Wh);
+// Meter Reading electricity delivered by client (Tariff 3) in 0,001 kWh
+DEFINE_FIELD(energy_returned_tariff3_il, FixedValue, ObisId(1, 0, 2, 8, 13), FixedField, units::kWh, units::Wh);
+// Tariff indicator electricity.
+DEFINE_FIELD(electricity_tariff_il, std::string_view, ObisId(0, 0, 96, 14, 1), StringField, 2, 2);
+// Power Failure Event Log (long power failures)
+DEFINE_FIELD(electricity_failure_log_il, std::string_view, ObisId(1, 0, 99, 1, 0), RawField);
+
 // Tariff indicator electricity. The tariff indicator can also be used
 // to switch tariff dependent loads e.g boilers. This is the
 // responsibility of the P1 user
-DEFINE_FIELD(electricity_tariff, std::string, ObisId(0, 0, 96, 14, 0), StringField, 4, 4);
+DEFINE_FIELD(electricity_tariff, std::string_view, ObisId(0, 0, 96, 14, 0), StringField, 4, 4);
 
 // Actual electricity power delivered (+P) in 1 Watt resolution
 DEFINE_FIELD(power_delivered, FixedValue, ObisId(1, 0, 1, 7, 0), FixedField, units::kW, units::W);
@@ -356,7 +347,7 @@ DEFINE_FIELD(electricity_failures, uint32_t, ObisId(0, 0, 96, 7, 21), IntField, 
 DEFINE_FIELD(electricity_long_failures, uint32_t, ObisId(0, 0, 96, 7, 9), IntField, units::none);
 
 // Power Failure Event Log (long power failures)
-DEFINE_FIELD(electricity_failure_log, std::string, ObisId(1, 0, 99, 97, 0), RawField);
+DEFINE_FIELD(electricity_failure_log, std::string_view, ObisId(1, 0, 99, 97, 0), RawField);
 
 // Number of voltage sags in phase L1
 DEFINE_FIELD(electricity_sags_l1, uint32_t, ObisId(1, 0, 32, 32, 0), IntField, units::none);
@@ -389,10 +380,10 @@ DEFINE_FIELD(voltage_swell_time_l3, uint32_t, ObisId(1, 0, 72, 37, 0), IntField,
 DEFINE_FIELD(voltage_swell_l3, uint32_t, ObisId(1, 0, 72, 38, 0), IntField, units::V);
 
 // Text message codes: numeric 8 digits (Note: Missing from 5.0 spec)
-DEFINE_FIELD(message_short, std::string, ObisId(0, 0, 96, 13, 1), StringField, 0, 16);
+DEFINE_FIELD(message_short, std::string_view, ObisId(0, 0, 96, 13, 1), StringField, 0, 16);
 // Text message max 2048 characters (Note: Spec says 1024 in comment and
 // 2048 in format spec, so we stick to 2048).
-DEFINE_FIELD(message_long, std::string, ObisId(0, 0, 96, 13, 0), StringField, 0, 2048);
+DEFINE_FIELD(message_long, std::string_view, ObisId(0, 0, 96, 13, 0), StringField, 0, 2048);
 
 // Instantaneous voltage L1 in 0.1V resolution (Note: Spec says V
 // resolution in comment, but 0.1V resolution in format spec. Added in 5.0)
@@ -487,63 +478,63 @@ DEFINE_FIELD(active_demand_net, FixedValue, ObisId(1, 0, 16, 24, 0), FixedField,
 DEFINE_FIELD(active_demand_abs, FixedValue, ObisId(1, 0, 15, 24, 0), FixedField, units::kW, units::W);
 
 // Device-Type
-DEFINE_FIELD(gas_device_type, uint16_t, ObisId(0, GAS_MBUS_ID, 24, 1, 0), IntField, units::none);
+DEFINE_FIELD(gas_device_type, uint16_t, ObisId(0, DSMR_GAS_MBUS_ID, 24, 1, 0), IntField, units::none);
 
 // Equipment identifier (Gas)
-DEFINE_FIELD(gas_equipment_id, std::string, ObisId(0, GAS_MBUS_ID, 96, 1, 0), StringField, 0, 96);
+DEFINE_FIELD(gas_equipment_id, std::string_view, ObisId(0, DSMR_GAS_MBUS_ID, 96, 1, 0), StringField, 0, 96);
 // Equipment identifier (Gas) BE
-DEFINE_FIELD(gas_equipment_id_be, std::string, ObisId(0, GAS_MBUS_ID, 96, 1, 1), StringField, 0, 96);
+DEFINE_FIELD(gas_equipment_id_be, std::string_view, ObisId(0, DSMR_GAS_MBUS_ID, 96, 1, 1), StringField, 0, 96);
 
 // Valve position Gas (on/off/released) (Note: Removed in 4.0.7 / 4.2.2 / 5.0).
-DEFINE_FIELD(gas_valve_position, uint8_t, ObisId(0, GAS_MBUS_ID, 24, 4, 0), IntField, units::none);
+DEFINE_FIELD(gas_valve_position, uint8_t, ObisId(0, DSMR_GAS_MBUS_ID, 24, 4, 0), IntField, units::none);
 
 // Last 5-minute value (temperature converted), gas delivered to client
 // in m3, including decimal values and capture time (Note: 4.x spec has "hourly value")
-DEFINE_FIELD(gas_delivered, TimestampedFixedValue, ObisId(0, GAS_MBUS_ID, 24, 2, 1), TimestampedFixedField, units::m3, units::dm3);
+DEFINE_FIELD(gas_delivered, TimestampedFixedValue, ObisId(0, DSMR_GAS_MBUS_ID, 24, 2, 1), TimestampedFixedField, units::m3, units::dm3);
 // Eneco in the Netherlands has smart meters for their district heating network, which uses the gas_delivered in GJ rather than m3
-DEFINE_FIELD(gas_delivered_gj, TimestampedFixedValue, ObisId(0, GAS_MBUS_ID, 24, 2, 1), TimestampedFixedField, units::GJ, units::MJ);
+DEFINE_FIELD(gas_delivered_gj, TimestampedFixedValue, ObisId(0, DSMR_GAS_MBUS_ID, 24, 2, 1), TimestampedFixedField, units::GJ, units::MJ);
 // _BE
-DEFINE_FIELD(gas_delivered_be, TimestampedFixedValue, ObisId(0, GAS_MBUS_ID, 24, 2, 3), TimestampedFixedField, units::m3, units::dm3);
-DEFINE_FIELD(gas_delivered_text, std::string, ObisId(0, GAS_MBUS_ID, 24, 3, 0), RawField);
+DEFINE_FIELD(gas_delivered_be, TimestampedFixedValue, ObisId(0, DSMR_GAS_MBUS_ID, 24, 2, 3), TimestampedFixedField, units::m3, units::dm3);
+DEFINE_FIELD(gas_delivered_text, std::string_view, ObisId(0, DSMR_GAS_MBUS_ID, 24, 3, 0), RawField);
 
 // Device-Type
-DEFINE_FIELD(thermal_device_type, uint16_t, ObisId(0, THERMAL_MBUS_ID, 24, 1, 0), IntField, units::none);
+DEFINE_FIELD(thermal_device_type, uint16_t, ObisId(0, DSMR_THERMAL_MBUS_ID, 24, 1, 0), IntField, units::none);
 
 // Equipment identifier (Thermal: heat or cold)
-DEFINE_FIELD(thermal_equipment_id, std::string, ObisId(0, THERMAL_MBUS_ID, 96, 1, 0), StringField, 0, 96);
+DEFINE_FIELD(thermal_equipment_id, std::string_view, ObisId(0, DSMR_THERMAL_MBUS_ID, 96, 1, 0), StringField, 0, 96);
 
 // Valve position (on/off/released) (Note: Removed in 4.0.7 / 4.2.2 / 5.0).
-DEFINE_FIELD(thermal_valve_position, uint8_t, ObisId(0, THERMAL_MBUS_ID, 24, 4, 0), IntField, units::none);
+DEFINE_FIELD(thermal_valve_position, uint8_t, ObisId(0, DSMR_THERMAL_MBUS_ID, 24, 4, 0), IntField, units::none);
 
 // Last 5-minute Meter reading Heat or Cold in 0,01 GJ and capture time
 // (Note: 4.x spec has "hourly meter reading")
-DEFINE_FIELD(thermal_delivered, TimestampedFixedValue, ObisId(0, THERMAL_MBUS_ID, 24, 2, 1), TimestampedFixedField, units::GJ, units::MJ);
+DEFINE_FIELD(thermal_delivered, TimestampedFixedValue, ObisId(0, DSMR_THERMAL_MBUS_ID, 24, 2, 1), TimestampedFixedField, units::GJ, units::MJ);
 
 // Device-Type
-DEFINE_FIELD(water_device_type, uint16_t, ObisId(0, WATER_MBUS_ID, 24, 1, 0), IntField, units::none);
+DEFINE_FIELD(water_device_type, uint16_t, ObisId(0, DSMR_WATER_MBUS_ID, 24, 1, 0), IntField, units::none);
 
 // Equipment identifier (Thermal: heat or cold)
-DEFINE_FIELD(water_equipment_id, std::string, ObisId(0, WATER_MBUS_ID, 96, 1, 0), StringField, 0, 96);
+DEFINE_FIELD(water_equipment_id, std::string_view, ObisId(0, DSMR_WATER_MBUS_ID, 96, 1, 0), StringField, 0, 96);
 
 // Valve position (on/off/released) (Note: Removed in 4.0.7 / 4.2.2 / 5.0).
-DEFINE_FIELD(water_valve_position, uint8_t, ObisId(0, WATER_MBUS_ID, 24, 4, 0), IntField, units::none);
+DEFINE_FIELD(water_valve_position, uint8_t, ObisId(0, DSMR_WATER_MBUS_ID, 24, 4, 0), IntField, units::none);
 
 // Last 5-minute Meter reading in 0,001 m3 and capture time
 // (Note: 4.x spec has "hourly meter reading")
-DEFINE_FIELD(water_delivered, TimestampedFixedValue, ObisId(0, WATER_MBUS_ID, 24, 2, 1), TimestampedFixedField, units::m3, units::dm3);
+DEFINE_FIELD(water_delivered, TimestampedFixedValue, ObisId(0, DSMR_WATER_MBUS_ID, 24, 2, 1), TimestampedFixedField, units::m3, units::dm3);
 
 // Device-Type
-DEFINE_FIELD(sub_device_type, uint16_t, ObisId(0, SUB_MBUS_ID, 24, 1, 0), IntField, units::none);
+DEFINE_FIELD(sub_device_type, uint16_t, ObisId(0, DSMR_SUB_MBUS_ID, 24, 1, 0), IntField, units::none);
 
 // Equipment identifier (Thermal: heat or cold)
-DEFINE_FIELD(sub_equipment_id, std::string, ObisId(0, SUB_MBUS_ID, 96, 1, 0), StringField, 0, 96);
+DEFINE_FIELD(sub_equipment_id, std::string_view, ObisId(0, DSMR_SUB_MBUS_ID, 96, 1, 0), StringField, 0, 96);
 
 // Valve position (on/off/released) (Note: Removed in 4.0.7 / 4.2.2 / 5.0).
-DEFINE_FIELD(sub_valve_position, uint8_t, ObisId(0, SUB_MBUS_ID, 24, 4, 0), IntField, units::none);
+DEFINE_FIELD(sub_valve_position, uint8_t, ObisId(0, DSMR_SUB_MBUS_ID, 24, 4, 0), IntField, units::none);
 
 // Last 5-minute Meter reading Heat or Cold and capture time (e.g. sub
 // E meter) (Note: 4.x spec has "hourly meter reading")
-DEFINE_FIELD(sub_delivered, TimestampedFixedValue, ObisId(0, SUB_MBUS_ID, 24, 2, 1), TimestampedFixedField, units::m3, units::dm3);
+DEFINE_FIELD(sub_delivered, TimestampedFixedValue, ObisId(0, DSMR_SUB_MBUS_ID, 24, 2, 1), TimestampedFixedField, units::m3, units::dm3);
 
 // Extra fields used for Belgian capacity rate/peak consumption (cappaciteitstarief). Current quart-hourly energy consumption
 DEFINE_FIELD(active_energy_import_current_average_demand, FixedValue, ObisId(1, 0, 1, 4, 0), FixedField, units::kW, units::W);
@@ -565,11 +556,11 @@ DEFINE_FIELD(active_energy_import_maximum_demand_running_month, TimestampedFixed
 DEFINE_FIELD(active_energy_import_maximum_demand_last_13_months, FixedValue, ObisId(0, 0, 98, 1, 0), AveragedFixedField, units::kW, units::W);
 
 // Image Core Version and checksum
-DEFINE_FIELD(fw_core_version, std::string, ObisId(1, 0, 0, 2, 0), StringField, 0, 96);
-DEFINE_FIELD(fw_core_checksum, std::string, ObisId(1, 0, 0, 2, 8), StringField, 0, 96);
+DEFINE_FIELD(fw_core_version, std::string_view, ObisId(1, 0, 0, 2, 0), StringField, 0, 96);
+DEFINE_FIELD(fw_core_checksum, std::string_view, ObisId(1, 0, 0, 2, 8), StringField, 0, 96);
 // Image Module Version and checksum
-DEFINE_FIELD(fw_module_version, std::string, ObisId(1, 1, 0, 2, 0), StringField, 0, 96);
-DEFINE_FIELD(fw_module_checksum, std::string, ObisId(1, 1, 0, 2, 8), StringField, 0, 96);
+DEFINE_FIELD(fw_module_version, std::string_view, ObisId(1, 1, 0, 2, 0), StringField, 0, 96);
+DEFINE_FIELD(fw_module_checksum, std::string_view, ObisId(1, 1, 0, 2, 8), StringField, 0, 96);
 
 // Instantaneous power factor
 DEFINE_FIELD(power_factor, FixedValue, ObisId(1, 0, 13, 7, 0), FixedField, units::none, units::none);

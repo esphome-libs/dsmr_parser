@@ -132,17 +132,29 @@ struct TimestampedFixedValue : public FixedValue {
   std::string_view timestamp;
 };
 
-// Some numerical values are prefixed with a timestamp. This is simply
-// both of them concatenated, e.g. 0-1:24.2.1(150117180000W)(00473.789*m3)
+// Numerical values prefixed with a timestamp:
+//   0-1:24.2.1(150117180000W)(00473.789*m3)
+// Some meters put the value first, followed by a 12-character timestamp
+//   1-0:1.6.0(006.4*kW)(261023051500)
 template <typename T, const char* _unit, const char* _int_unit>
 struct TimestampedFixedField : public FixedField<T, _unit, _int_unit> {
   std::optional<std::string_view> parse(std::string_view input) {
     std::string_view ts;
-    auto res = parse_string(ts, 13, 13, input);
+    auto res = parse_string(ts, 13, 13, input, /* log_errors */ false);
+    if (res) {
+      static_cast<T*>(this)->val().timestamp = ts;
+      return FixedField<T, _unit, _int_unit>::parse(*res);
+    }
+
+    res = FixedField<T, _unit, _int_unit>::parse(input);
     if (!res)
       return std::nullopt;
+    res = parse_string(ts, 12, 12, *res);
+    if (!res)
+      return std::nullopt;
+
     static_cast<T*>(this)->val().timestamp = ts;
-    return FixedField<T, _unit, _int_unit>::parse(*res);
+    return res;
   }
 };
 

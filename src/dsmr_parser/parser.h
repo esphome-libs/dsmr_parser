@@ -37,9 +37,10 @@ struct ParsedData final : Ts... {
 
 // Parse a parenthesized string: (content)
 // Handles double-closing brackets like ((ER11))
-inline std::optional<std::string_view> parse_string(std::string_view& out, size_t min, size_t max, std::string_view input) {
+inline std::optional<std::string_view> parse_string(std::string_view& out, size_t min, size_t max, std::string_view input, bool log_errors = true) {
   if (input.empty() || input.front() != '(') {
-    Logger::log(LogLevel::ERROR, "Missing ( '%.*s'", static_cast<int>(input.size()), input.data());
+    if (log_errors)
+      Logger::log(LogLevel::ERROR, "Missing ( '%.*s'", static_cast<int>(input.size()), input.data());
     return std::nullopt;
   }
 
@@ -52,13 +53,15 @@ inline std::optional<std::string_view> parse_string(std::string_view& out, size_
     ++pos;
 
   if (pos == input.size()) {
-    Logger::log(LogLevel::ERROR, "Missing ) '%.*s'", static_cast<int>(input.size()), input.data());
+    if (log_errors)
+      Logger::log(LogLevel::ERROR, "Missing ) '%.*s'", static_cast<int>(input.size()), input.data());
     return std::nullopt;
   }
 
   auto len = pos - 1;
   if (len < min || len > max) {
-    Logger::log(LogLevel::ERROR, "Invalid string length '%.*s'", static_cast<int>(input.size()), input.data());
+    if (log_errors)
+      Logger::log(LogLevel::ERROR, "Invalid string length '%.*s'", static_cast<int>(input.size()), input.data());
     return std::nullopt;
   }
 

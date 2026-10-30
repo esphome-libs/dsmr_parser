@@ -330,6 +330,85 @@ TEST_CASE_FIXTURE(LogFixture, "Should parse TimestampedFixedField for gas_delive
   REQUIRE(data.gas_delivered_be.timestamp == "230101120000W");
 }
 
+TEST_CASE_FIXTURE(LogFixture, "Parses a telegram from 'Belgium Iskra IE.5 AIEG'") {
+  const auto& msg = "/ISK5\\2MIE5T-200\n\r"
+                    "0-0:96.1.4(3231313130)\n\r"
+                    "0-0:96.1.1(3938363835333435)\n\r"
+                    "0-0:1.0.0(261023133755S)\n\r"
+                    "1-0:1.8.1(000020.381*kWh)\n\r"
+                    "1-0:1.8.2(000089.794*kWh)\n\r"
+                    "1-0:1.8.3(000000.000*kWh)\n\r"
+                    "1-0:1.8.4(000000.000*kWh)\n\r"
+                    "1-0:1.8.5(000000.000*kWh)\n\r"
+                    "1-0:2.8.1(000000.000*kWh)\n\r"
+                    "1-0:2.8.2(000000.000*kWh)\n\r"
+                    "1-0:2.8.3(000000.000*kWh)\n\r"
+                    "1-0:2.8.4(000000.000*kWh)\n\r"
+                    "1-0:2.8.5(000000.000*kWh)\n\r"
+                    "0-0:96.14.0(0002)\n\r"
+                    "1-0:1.4.0(000.1*kW)\n\r"
+                    "1-0:1.6.0(006.4*kW)(261023051500)\n\r"
+                    "1-0:1.7.0(000.2*kW)\n\r"
+                    "1-0:2.7.0(000.0*kW)\n\r"
+                    "1-0:21.7.0(000.0*kW)\n\r"
+                    "1-0:22.7.0(000.0*kW)\n\r"
+                    "1-0:41.7.0(000.1*kW)\n\r"
+                    "1-0:42.7.0(000.0*kW)\n\r"
+                    "1-0:61.7.0(000.0*kW)\n\r"
+                    "1-0:62.7.0(000.0*kW)\n\r"
+                    "1-0:32.7.0(129.5*V)\n\r"
+                    "1-0:52.7.0(130.1*V)\n\r"
+                    "1-0:72.7.0(129.8*V)\n\r"
+                    "1-0:31.7.0(001.32*A)\n\r"
+                    "1-0:51.7.0(001.19*A)\n\r"
+                    "1-0:71.7.0(000.61*A)\n\r"
+                    "0-0:96.3.10(1)\n\r"
+                    "0-0:17.0.0(999.9*kVA)\n\r"
+                    "1-0:31.4.0(999*A)\n\r"
+                    "0-1:96.3.10(1)\n\r"
+                    "0-2:96.3.10(0)\n\r"
+                    "0-0:96.13.0()\n\r"
+                    "!";
+
+  ParsedData<identification, timestamp, active_energy_import_current_average_demand, active_energy_import_maximum_demand_running_month, power_delivered,
+             message_long>
+      data;
+
+  const auto telegram = DsmrUnencryptedTelegram::from_bytes(msg, /* crc_check */ false);
+  REQUIRE(telegram);
+  REQUIRE(DsmrParser::parse(data, *telegram));
+  REQUIRE(data.all_present());
+  REQUIRE(data.identification == "ISK5\\2MIE5T-200");
+  REQUIRE(data.timestamp == "261023133755S");
+  REQUIRE(data.active_energy_import_current_average_demand == 0.1f);
+  REQUIRE(data.active_energy_import_maximum_demand_running_month == 6.4f);
+  REQUIRE(data.active_energy_import_maximum_demand_running_month.int_val() == 6400);
+  REQUIRE(data.active_energy_import_maximum_demand_running_month.timestamp == "261023051500");
+  REQUIRE(data.power_delivered == 0.2f);
+  REQUIRE(data.message_long.empty());
+}
+
+TEST_CASE_FIXTURE(LogFixture, "Should parse integer units before a 12-character timestamp") {
+  const auto& msg = "/ISK5\\2MIE5T-200\r\n"
+                    "1-0:1.6.0(6400*W)(261023051500)\r\n"
+                    "!";
+  ParsedData<active_energy_import_maximum_demand_running_month> data;
+
+  REQUIRE(DsmrParser::parse(data, *DsmrUnencryptedTelegram::from_bytes(msg, false), /* unknown_error */ true));
+  REQUIRE(data.active_energy_import_maximum_demand_running_month == 6.4f);
+  REQUIRE(data.active_energy_import_maximum_demand_running_month.timestamp == "261023051500");
+}
+
+TEST_CASE_FIXTURE(LogFixture, "Should reject invalid values and timestamps in value-first timestamped fields") {
+  for (const auto* input : {"(invalid*kW)(261023051500)", "(006.4*kVA)(261023051500)", "(006.4*kW)", "(006.4*kW)(26102305150)", "(006.4*kW)(261023051500S)"}) {
+    CAPTURE(input);
+    const auto msg = std::string("/ISK5\\2MIE5T-200\r\n1-0:1.6.0") + input + "\r\n!";
+    ParsedData<active_energy_import_maximum_demand_running_month> data;
+
+    REQUIRE_FALSE(DsmrParser::parse(data, *DsmrUnencryptedTelegram::from_bytes(msg, false)));
+  }
+}
+
 TEST_CASE_FIXTURE(LogFixture, "Should take the last value with LastFixedField (capacity rate history)") {
   const auto& msg = "/KFM5MTR\r\n"
                     "\r\n"
